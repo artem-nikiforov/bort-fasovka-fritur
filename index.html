@@ -1,0 +1,1472 @@
+<!DOCTYPE html>
+<!-- ═══════════════════════════════════════════════════════════════════════
+  ТРЕНАЖЁР «Нарушения стандартов: Борт, Фасовка, Фритюр»
+  Собран на дизайн-системе KU (ku-design-system): токены --ku-*, компоненты
+  .ku-*, механики из docs/MECHANICS.md, SCORM 1.2 из js/ku-scorm.js.
+
+  СТРУКТУРА: обложка+инструкция (home) → материалы (mat) →
+  24 ситуаций (s1…s24) → финал (finish).
+
+  ГРАФИКА: реальные фотографии сценария лежат в assets/img.
+  Недостающая графика оформлена заглушкой .ku-gen — рядом с ней в
+  <script type="application/json" data-gen-prompt> вшит готовый промт
+  (стиль stylized_3d_family_animation). Положи сгенерированный файл по
+  пути из промта — заглушка исчезнет сама, разметку править не нужно.
+  Все промты одним списком: assets/img/PROMPTS.md
+═══════════════════════════════════════════════════════════════════════ -->
+<html lang="ru" data-audience="ms" data-direction="stancii" data-ku-course="ku-bort-fasovka-fritur">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Нарушения стандартов: Борт, Фасовка, Фритюр</title>
+  <link rel="stylesheet" href="css/kuds.css">
+  <style>
+/* ═══════════════════════════════════════════════════════════════════════
+   СОБСТВЕННЫЕ ЭЛЕМЕНТЫ ТРЕНАЖЁРА
+   Собраны по docs/PRINCIPLES.md §7: только токены --ku-*, состояния из
+   словаря ДС (.correct / .wrong / .is-done), тайминги из токенов.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Выбор варианта с отложенной проверкой ──────────────────────────
+   ДС-механика .ku-choice[data-correct] проверяет ответ мгновенно и не
+   умеет показывать разбор неверного ответа. Сценарию нужен разбор в обоих
+   случаях, поэтому здесь свой цикл: отметить → «Ответить» → разбор.
+   Разметка и состояния — родные ДС, добавлены только .is-picked и .missed. */
+.ku-choice.is-picked { border-color: var(--ku-brand); background: var(--ku-brand-soft); }
+.ku-choice.is-picked .ku-choice__marker {
+  border-color: var(--ku-brand); background: var(--ku-brand); color: var(--ku-brand-on);
+}
+.ku-choice.missed { border-color: var(--ku-warning); background: var(--ku-warning-soft); }
+.ku-choice.missed .ku-choice__marker { border-color: var(--ku-warning); background: var(--ku-warning); color: var(--ku-brand-on); }
+.ku-choice:disabled { opacity: 1; }
+.ku-choice__marker svg { opacity: 0; transition: opacity var(--ku-dur-fast) var(--ku-ease); }
+.ku-choice.is-picked .ku-choice__marker svg,
+.ku-choice.correct   .ku-choice__marker svg,
+.ku-choice.wrong     .ku-choice__marker svg,
+.ku-choice.missed    .ku-choice__marker svg { opacity: 1; }
+
+/* ── 2. Три зоны для сортировки (в ДС сетка на две) ───────────────────── */
+.ku-zones.cols-3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 780px) { .ku-zones.cols-3 { grid-template-columns: 1fr; } }
+/* Чипы — сплошной бренд вместо градиента: на светлом конце градиента
+   (контрастный цвет направления «Станции») белый текст теряет контраст */
+.ku-chip { background: var(--ku-brand); }
+.ku-chip.correct { background: var(--ku-success); }
+.ku-chip.wrong   { background: var(--ku-danger); }
+.ku-exercise.is-answered .ku-chip { pointer-events: none; cursor: default; }
+.ku-exercise.is-answered .ku-pool { opacity: 0.5; }
+
+/* ── 3. Аудит по фотографиям (ситуация 24) ─────────────────────────────
+   Плитка = фото + кнопка отметки + кнопка увеличения + подпись-разбор. */
+.ku-audit { display: grid; gap: var(--ku-gap-m); grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }
+.ku-audit__item {
+  position: relative;
+  border: 3px solid var(--ku-border);
+  border-radius: var(--ku-radius-l);
+  background: var(--ku-card);
+  overflow: hidden;
+  transition: border-color var(--ku-dur-fast) var(--ku-ease),
+              box-shadow var(--ku-dur-fast) var(--ku-ease),
+              transform var(--ku-dur-fast) var(--ku-ease-out);
+}
+.ku-audit__item:hover { transform: translateY(-2px); box-shadow: var(--ku-shadow-m); }
+.ku-audit__pick { display: block; width: 100%; padding: 0; cursor: pointer; background: none; }
+.ku-audit__pick .ku-img { border-radius: 0; aspect-ratio: 4 / 3; }
+.ku-audit__item.is-picked { border-color: var(--ku-info); box-shadow: var(--ku-shadow-m); }
+.ku-audit__item.correct   { border-color: var(--ku-success); }
+.ku-audit__item.wrong     { border-color: var(--ku-danger); }
+.ku-audit__item.missed    { border-color: var(--ku-warning); }
+.ku-audit__flag {
+  position: absolute; top: 0.5em; left: 0.5em;
+  display: none; align-items: center; gap: 0.35em;
+  padding: 0.3em 0.7em;
+  border-radius: var(--ku-radius-pill);
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--ku-brand-on);
+}
+.ku-audit__item.is-picked .ku-audit__flag { display: inline-flex; background: var(--ku-info); }
+.ku-audit__item.correct   .ku-audit__flag { display: inline-flex; background: var(--ku-success); }
+.ku-audit__item.wrong     .ku-audit__flag { display: inline-flex; background: var(--ku-danger); }
+.ku-audit__item.missed    .ku-audit__flag { display: inline-flex; background: var(--ku-warning); }
+.ku-zoombtn {
+  position: absolute; top: 0.5em; right: 0.5em; z-index: 2;
+  display: grid; place-items: center;
+  width: 2.2em; height: 2.2em;
+  border-radius: var(--ku-radius-pill);
+  background: var(--ku-card); color: var(--ku-text-soft);
+  box-shadow: var(--ku-shadow-s);
+  cursor: pointer;
+  transition: color var(--ku-dur-fast) var(--ku-ease), transform var(--ku-dur-fast) var(--ku-ease-spring);
+}
+.ku-zoombtn:hover { color: var(--ku-brand); transform: scale(1.1); }
+.ku-audit__note { display: none; padding: 0.7em 0.9em; border-top: 1px solid var(--ku-border-soft); }
+.ku-audit.checked .ku-audit__note { display: block; }
+.ku-audit__note b { display: block; font-size: 0.9rem; }
+.ku-audit__note span { font-size: 0.8rem; color: var(--ku-text-muted); }
+
+/* ── 4. Заглушка графики с вшитым промтом ──────────────────────────────
+   Слот .ku-img ДС + подпись, что файла ещё нет, и кнопка «Показать промт».
+   Файл появится в assets/img — картинка подставится, заглушка исчезнет. */
+.ku-gen .ku-img { background: var(--ku-grad-brand-soft); }
+/* Пустой <img> без src иначе показал бы alt-текст поверх заглушки */
+.ku-gen .ku-img img:not([src]) { display: none; }
+.ku-gen .ku-img__ph { gap: 0.7em; padding: var(--ku-space-m); }
+.ku-gen .ku-img__ph b { font-size: 0.95rem; color: var(--ku-text-soft); }
+.ku-gen .ku-img__ph code {
+  font-size: 0.75rem; color: var(--ku-text-muted);
+  background: var(--ku-surface-2); padding: 0.2em 0.5em; border-radius: var(--ku-radius-s);
+}
+.ku-figure { margin: 0; position: relative; }
+.ku-figure figcaption { margin-top: 0.6em; font-size: 0.78rem; color: var(--ku-text-muted); }
+
+/* Множественный выбор: квадратный маркер, чтобы отличался от одиночного */
+[data-task="multi"] .ku-choice__marker { border-radius: var(--ku-radius-s); }
+
+/* Слот обложки в герое: у ДС размер задан классом .ku-hero-img, здесь —
+   такой же рычаг для заглушки-фигуры */
+.ku-hero-slot { flex-shrink: 0; width: min(38vw, 26rem); }
+@media (max-width: 900px) { .ku-hero-slot { display: none !important; } }
+
+/* ── 5. Модалка шире стандартной (фото крупно и текст промта) ─────────── */
+.ku-modal.wide { max-width: 52rem; }
+.ku-modal.wide img { width: 100%; border-radius: var(--ku-radius-m); }
+.ku-prompt-text {
+  max-height: 46vh; overflow: auto;
+  white-space: pre-wrap; text-align: left;
+  font-size: 0.82rem; line-height: 1.55; color: var(--ku-text-soft);
+  background: var(--ku-surface); border: 1px solid var(--ku-border-soft);
+  border-radius: var(--ku-radius-m); padding: var(--ku-space-s);
+}
+
+/* ── 6. Мелочи экрана ситуации ─────────────────────────────────────────── */
+.ku-situation__text { font-size: 1.05rem; line-height: 1.6; }
+.ku-navrow { display: flex; align-items: center; justify-content: space-between; gap: var(--ku-gap-m); }
+.ku-table td, .ku-table th { vertical-align: top; }
+.ku-table tr.is-group td { background: var(--ku-brand-soft); font-weight: 700; color: var(--ku-brand-strong); }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-check-c" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-x-c" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M10 14.66v1.626a2 2 0 0 1-.976 1.696A5 5 0 0 0 7 21.978"/><path d="M14 14.66v1.626a2 2 0 0 0 .976 1.696A5 5 0 0 1 17 21.978"/><path d="M18 9h1.5a1 1 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M6 9a6 6 0 0 0 12 0V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+  <symbol id="i-zoom" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
+  <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 2v20"/><path d="m15 19-3 3-3-3"/><path d="m19 9 3 3-3 3"/><path d="M2 12h20"/><path d="m5 9-3 3 3 3"/><path d="m9 5 3-3 3 3"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+  <symbol id="i-utensils" viewBox="0 0 24 24"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></symbol>
+</defs></svg>
+
+<!-- ═══ ШАПКА: прогресс и доступ к материалам ═══ -->
+<header class="ku-topbar">
+  <div class="ku-topbar__inner">
+    <span class="ku-topbar__brand"><svg class="ku-ico"><use href="#i-flame"/></svg> Борт, Фасовка, Фритюр</span>
+    <div class="ku-topbar__spacer"></div>
+    <button class="ku-btn ghost" onclick="kuOpenMaterials()"><svg class="ku-ico"><use href="#i-book"/></svg> Материалы</button>
+    <span class="ku-progress__count" id="ku-course-count"></span>
+  </div>
+  <div class="ku-progress"><div class="ku-progress__bar" id="ku-course-bar"></div></div>
+</header>
+
+<main data-ku-course-nav data-ku-chapters="s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15,s16,s17,s18,s19,s20,s21,s22,s23,s24">
+
+  <!-- ═══ ОБЛОЖКА + ИНСТРУКЦИЯ ═══ -->
+  <div class="ku-page active" id="ku-page-home">
+    <section class="ku-section" style="background:var(--ku-grad-brand-soft);position:relative;overflow:hidden">
+      <span class="ku-bk-logo" role="img" aria-label="Burger King"></span>
+      <div class="ku-wrap">
+        <div class="ku-hero-row">
+          <div>
+            <span class="ku-eyebrow"><svg class="ku-ico s"><use href="#i-clock"/></svg> Менеджер смены · Станции и касса</span>
+            <div class="ku-space s"></div>
+            <h1 class="ku-display">Нарушения стандартов<br>в зоне Борта и Фасовки</h1>
+            <div class="ku-space s"></div>
+            <p class="ku-lead">Ты научишься замечать нарушения на станциях Борт (сборка сэндвичей)
+              и Фасовка (упаковка закусок), а также проверишь знание критических факторов
+              пищевой безопасности.</p>
+          </div>
+          <div class="ku-hero-slot"><figure class="ku-figure ku-gen">
+  <div class="ku-img" style="aspect-ratio:16/9">
+    <img data-gen-src="assets/img/hero.jpg" alt="Станции Борт и Фасовка на кухне ресторана">
+    <div class="ku-img__ph">
+      <svg class="ku-ico xl"><use href="#i-image"/></svg>
+      <b>Заглушка: Обложка тренажёра — станции Борт и Фасовка</b>
+      <code>assets/img/hero.jpg · 16:9</code>
+      <button type="button" class="ku-btn soft" onclick="kuShowPrompt('hero')"><svg class="ku-ico"><use href="#i-file"/></svg> Показать промт</button>
+    </div>
+  </div>
+  
+  <script type="application/json" data-gen-prompt="hero">{"id": "hero", "file": "assets/img/hero.jpg", "aspect": "16:9", "title": "Обложка тренажёра — станции Борт и Фасовка", "where": "Экран «Инструкция» (стартовый), слот .ku-img в шапке обложки", "prompt": "Высококачественная кинематографическая 3D-стилизация для семейной анимации, дружелюбные округлые формы, слегка увеличенные головы и выразительные крупные глаза, мягкая матовая кожа с деликатным subsurface scattering, скульптурные волосы, чистые силуэты, стилизованные PBR-материалы, мягкая глобальная иллюминация, детализированная, но не фотореалистичная среда Burger King.\n\nПомещение: производственная кухня ресторана Burger King. На переднем плане слева — станция сборки сэндвичей (Борт), на среднем плане справа — фритюрная линия и зона фасовки закусок. Параллельные рабочие линии из сатинированной нержавеющей стали, между ними центральный свободный проход. Стена за линией — белая крупноформатная плитка с тонкими швами; пол — светлый технический керамогранит. Реальные прямоугольные объёмы смягчены небольшими фасками и скруглениями, конструкция остаётся правдоподобной.\n\nПерсонажи: ровно два взрослых сотрудника, разведённые силуэтами, перечисление слева направо.\n\nСлева, у станции Борт, менеджер смены. Взрослый сотрудник AUP, директор или менеджер: чёрная форменная рубашка с коротким рукавом, отдельным полноценным воротником и полной планкой пуговиц; на левом нагрудном кармане сотрудника, справа для зрителя, маленькая отдельная текстильная нашивка из 3–4 коротких горизонтальных полос зелёного, красного, оранжевого и светло-коричневого цветов. Чёрные брюки, ремень, закрытая обувь и один бейдж; без поло, галстука и широкой цветной кокетки. Вне пищевой зоны без головного убора; на производстве одноразовая чёрная полупрозрачная нейлоновая hairnet-сетка с видимыми мелкими ромбовидными ячейками, просвечивающими волосами и тонкой резинкой; не beanie, без вязки, отворота и плотного fabric shader.\n\nСправа, у фритюрной линии, линейный сотрудник. Взрослый сотрудник CHBR, линейный персонал: поло с чёрным воротником, короткой чёрной планкой, чёрными рукавами и тёмным низом; крупная цветная зона в верхней трети — зелёная плечевая кокетка, красная, тёмно-коричневая и узкая карамельно-бежевая либо оранжевая полосы, непрерывные на переде и спине. Чёрные брюки, обувь и один бейдж. Вне пищевой зоны чёрная кепка; на производстве одноразовая чёрная полупрозрачная нейлоновая hairnet-сетка с видимыми мелкими ромбовидными ячейками, просвечивающими волосами и тонкой резинкой; не beanie, без вязки и отворота. На производстве отдельный чёрный фартук ниже цветной зоны и перчатки по действию. Поло, фартук, бейдж и сетка — разные mesh-слои; не однотонное чёрное поло.\n\nВнешность: менеджер — женщина около 35 лет, тёплый средний тон кожи, тёмные волосы собраны под чёрной hairnet-сеткой, спокойное доброжелательное выражение, брови слегка приподняты как при внимательном осмотре. Линейный сотрудник — мужчина около 25 лет, светло-оливковый тон кожи, короткие тёмные волосы под сеткой, сосредоточенное дружелюбное лицо. Округлые щёки, мягкая линия челюсти, чуть увеличенные кисти, крупные читаемые глаза с двумя контролируемыми бликами.\n\nОдно главное действие: менеджер стоит вполоборота к камере у станции Борт и раскрытой ладонью правой руки указывает на бортовой таймер над пеном с нарезанными томатами, левая рука придерживает планшет-чек-лист у бедра; взгляд направлен на таймер. Линейный сотрудник в глубине кадра двумя руками держит поднятую проволочную корзину над ванной фритюра, корпус слегка развёрнут к менеджеру.\n\nОборудование и реквизит:\nСтанция Борт — прямая линия из сатинированной нержавеющей стали со сплошной рабочей поверхностью и заметной толщиной панелей; углы имеют небольшую фаску. В общую направляющую вставлены 6 прямоугольных гастроёмкостей (пенов) с раздельными ингредиентами: нарезанные томаты, листовой салат крупными листьями, кольца лука, нарезанный сыр, маринованные огурцы, хрустящий лук. Щипцы лежат в своих пенах ручкой к оператору. Тубы с соусами стоят в одном металлическом лотке. Над Бортом — ряд прямоугольных бортовых таймеров с крупными читаемыми сегментными цифрами.\nФритюрная линия — два спаренных стальных корпуса с прямоугольными ваннами масла; проволочные корзины действительно висят в ваннах на держателях, а не парят; над линией — вытяжной зонт из той же стали; справа — наклонная зона фасовки с подогревом и лампами, стойка с бумажными пакетами и коробками закусок; рядом — прозрачный жёлтый диспенсер для соли на стальном кронштейне.\n\nМатериалы: сатинированная нержавейка с лёгкой шероховатостью; матовая ткань униформы с мягкими широкими складками; полупрозрачный жёлтый пластик диспенсера; матовая крафтовая бумага упаковки; еда с аппетитными округлыми формами, слегка усиленным цветом и мягкими жирными бликами, без пластиковой лакировки.\n\nСвет: Ключевой свет — большие нейтрально-белые потолочные панели 4500–5200 K; заполнение — широкие мягкие отражения от белой плитки и сатинированной стали; небольшой тёплый акцент от горячей станции работает как контровой. Мягкие контактные тени под ногами и под гастроёмкостями. Металл — сатинированная нержавейка с широкими мягкими отражениями и скруглённой кромкой, без зеркальных бликов и без выбитых белых пятен.\n\nКамера: кадр 16:9, эквивалент 24–28 мм, слегка повышенная точка над рабочей станцией, лёгкий наклон вниз. Глаза менеджера — около верхней трети кадра. Руки и таймер — в центральной безопасной области. Контролируемая небольшая глубина резкости: резкость на менеджере и на таймере, фритюрная линия мягко размыта и имеет меньший контраст. Не обрезать кисти, локти и головной убор краем кадра. Слева и снизу оставить спокойную зону без мелких деталей под заголовок курса.\n\nОбязательные инварианты: цельная геометрия оборудования без разрывов; пять пальцев на каждой видимой руке; оба глаза смотрят в одну точку; фартук, поло, бейдж и сетка для волос — раздельные mesh-слои; разные физические свойства кожи, ткани, металла, стекла и бумаги.\n\nИспользовать чистые простые поверхности вместо длинного текста; официальный логотип, меню, цены и QR-коды добавить отдельными ассетами на этапе композитинга.\n\nСохранить идентичные лицо, глаза, причёску, рост, телосложение и дизайн формы персонажа между кадрами; пять пальцев на каждой видимой руке; цельная геометрия оборудования; разные физические свойства кожи, ткани, металла, дерева, стекла и бумаги.", "negative": "фотореализм, 2D, аниме, chibi, пластиковая игрушка, восковая кожа, стеклянные глаза, косоглазие, лишние пальцы, повторяющиеся лица, парящие персонажи, однотонное полностью чёрное поло CHBR, CHBR без крупной цветной кокетки или оранжевого верха, фартук закрыл цветную форму CHBR, AUP без маленькой полосатой нашивки, широкая кокетка CHBR на рубашке AUP, рубашка АУП превращается в поло, CHBR в менеджерской рубашке, галстук, кепка и hairnet одновременно, beanie на производстве, knit cap вместо hairnet, вязаная или трикотажная шапка, широкий ребристый отворот, плотный непрозрачный купол, hairnet без видимых мелких ячеек и полупрозрачности, двойной бейдж, фартук срастается с телом, разорванные полосы формы, зеркальная нержавейка, одинаково пластиковые материалы, двойной экран киоска, лишние краны, несколько потоков напитка, бессмысленный текст, искажённый логотип, чрезмерный bloom, клон существующего героя"}</script>
+</figure></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="ku-section tight">
+      <div class="ku-wrap">
+        <h2 class="ku-h2">Как работает тренажёр</h2>
+        <div class="ku-space m"></div>
+        <div class="ku-grid cols-3"><div class="ku-card hover-lift ku-reveal" style="--d:0">
+      <div class="ku-icon-badge"><svg class="ku-ico"><use href="#i-grid"/></svg></div>
+      <div class="ku-space s"></div>
+      <h3 class="ku-h4">1. Сценарии</h3>
+      <p class="ku-small ku-soft">Ты проходишь реальные рабочие ситуации на Борту, Фасовке и Фритюре</p></div><div class="ku-card hover-lift ku-reveal" style="--d:1">
+      <div class="ku-icon-badge"><svg class="ku-ico"><use href="#i-zoom"/></svg></div>
+      <div class="ku-space s"></div>
+      <h3 class="ku-h4">2. Нарушение</h3>
+      <p class="ku-small ku-soft">В каждой ситуации нужно найти нарушение и выбрать правильное действие</p></div><div class="ku-card hover-lift ku-reveal" style="--d:2">
+      <div class="ku-icon-badge"><svg class="ku-ico"><use href="#i-check-c"/></svg></div>
+      <div class="ku-space s"></div>
+      <h3 class="ku-h4">3. Разбор</h3>
+      <p class="ku-small ku-soft">После каждого ответа ты получаешь обратную связь — почему ответ верный или неверный</p></div></div>
+        <div class="ku-space l"></div>
+
+        <div class="ku-wrap measure" style="padding-inline:0">
+          <div class="ku-callout ku-reveal">
+            <span class="ku-callout__icon"><svg class="ku-ico l"><use href="#i-shield"/></svg></span>
+            <div><div class="ku-callout__title">Цель</div>
+              <p>Научиться контролировать качество и безопасность на этапе сборки
+                 и упаковки готовых продуктов.</p></div>
+          </div>
+          <div class="ku-space m"></div>
+
+          <div class="ku-callout info ku-reveal">
+            <span class="ku-callout__icon"><svg class="ku-ico l"><use href="#i-book"/></svg></span>
+            <div><div class="ku-callout__title">Материалы для изучения</div>
+              <p>Сроки хранения, памятка по упаковке, памятка по жаровне и памятка по диспенсеру
+                 для соли. Они доступны с любого экрана — кнопка «Материалы» в шапке.</p>
+              <div class="ku-space s"></div>
+              <button class="ku-btn secondary" onclick="kuOpenMaterials()"><svg class="ku-ico"><use href="#i-book"/></svg> Открыть материалы</button>
+            </div>
+          </div>
+          <div class="ku-space m"></div>
+
+          <p class="ku-small ku-soft"><svg class="ku-ico s"><use href="#i-clock"/></svg>
+            Тебе потребуется примерно <b>25 минут</b>, чтобы начать замечать нарушения
+            на Борте и Фасовке. Всего 24 ситуаций.</p>
+          <div class="ku-space l"></div>
+
+          <div class="ku-center">
+            <p class="ku-h3">Готов начинать?</p>
+            <div class="ku-space s"></div>
+            <button class="ku-btn primary l" onclick="kuNavigate('s1')">Конечно! <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+            <div class="ku-space s"></div>
+            <button class="ku-btn soft" id="resume-btn" hidden><svg class="ku-ico"><use href="#i-right"/></svg> <span data-resume-label></span></button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ═══ МАТЕРИАЛЫ ДЛЯ ИЗУЧЕНИЯ ═══ -->
+  <div class="ku-page" id="ku-page-mat">
+    <section class="ku-section tight">
+      <div class="ku-wrap">
+        <button class="ku-btn ghost" onclick="kuCloseMaterials()"><svg class="ku-ico"><use href="#i-left"/></svg> Вернуться к тренажёру</button>
+        <div class="ku-space m"></div>
+        <span class="ku-eyebrow"><svg class="ku-ico s"><use href="#i-book"/></svg> Материалы для изучения</span>
+        <div class="ku-space s"></div>
+        <h2 class="ku-h1">Памятки и сроки хранения</h2>
+        <p class="ku-lead">Открывай их в любой момент — тренажёр не сбросится, прогресс сохранится.</p>
+        <div class="ku-space m"></div>
+
+        <div class="ku-grid cols-3"><a class="ku-card hover-lift" href="assets/pamyatki/pamyatka-upakovka.pdf" target="_blank" rel="noopener"
+      style="display:block;text-decoration:none;color:inherit">
+      <div class="ku-icon-badge"><svg class="ku-ico"><use href="#i-file"/></svg></div>
+      <div class="ku-space s"></div><b>Памятка: упаковка</b>
+      <p class="ku-caption">Как упаковывать закуски и сэндвичи · PDF</p></a><a class="ku-card hover-lift" href="assets/pamyatki/pamyatka-zharovnya.pdf" target="_blank" rel="noopener"
+      style="display:block;text-decoration:none;color:inherit">
+      <div class="ku-icon-badge"><svg class="ku-ico"><use href="#i-file"/></svg></div>
+      <div class="ku-space s"></div><b>Памятка: жаровня</b>
+      <p class="ku-caption">Работа с жаровней и стандарты приготовления · PDF</p></a><a class="ku-card hover-lift" href="assets/pamyatki/pamyatka-dispenser-soli.pdf" target="_blank" rel="noopener"
+      style="display:block;text-decoration:none;color:inherit">
+      <div class="ku-icon-badge"><svg class="ku-ico"><use href="#i-file"/></svg></div>
+      <div class="ku-space s"></div><b>Памятка: диспенсер для соли</b>
+      <p class="ku-caption">Как солить картофель фри по стандарту · PDF</p></a></div>
+        <div class="ku-space l"></div>
+
+        <h3 class="ku-h2">Сроки хранения на производстве</h3>
+        <p class="ku-small ku-soft">Обновление от 05.08.2026. ТД — «товар до», окончание срока хранения.
+          Полная таблица со всеми колонками — в исходном файле.</p>
+        <div class="ku-space s"></div>
+        <div class="ku-scroll-x"><table class="ku-table"><thead><tr><th>Продукт</th><th>Срок хранения на производстве</th><th>Место маркировки</th></tr></thead><tbody><tr class="is-group"><td colspan="3">Замороженные продукты</td></tr><tr><td>Тортилья 9&quot;</td><td>ТД = 24 часа</td><td>каждый пэн</td></tr><tr><td>Булочки (в ассортименте)</td><td>П/T/Д = 6ч./48ч.</td><td>каждый сливс</td></tr><tr><td>Лук красный маринованный</td><td>ТД = 4 часа (вкл. время выдержки 1 час)</td><td>каждый пэн (+решётка)</td></tr><tr><td>Хрустящий лук</td><td>ТД = 8 часов</td><td>каждый пэн</td></tr><tr><td>Бекон жареный</td><td>ТД = 4 часа (вкл. время выдержки 1 час)</td><td>каждый пэн</td></tr><tr class="is-group"><td colspan="3">Соусы</td></tr><tr><td>Майонез 65%</td><td>ТД = 24 часа (вкл. время выдержки 1 час)</td><td>каждая туба</td></tr><tr><td>Кетчуп</td><td>ТД = 24 часа (вкл. время выдержки 1 час)</td><td>каждая туба/каждый сквизер</td></tr><tr><td>Горчица &quot;Heinz&quot;</td><td>ТД = 24 часа</td><td>каждая туба</td></tr><tr><td>Соус Цезарь &quot;Heinz&quot;</td><td>ТД = 24 часа (вкл. время выдержки 1 час)</td><td>каждая туба</td></tr><tr><td>Соус Томатный острый</td><td>ТД = 24 часа (вкл. время выдержки 1 час)</td><td>каждый сквизер</td></tr><tr><td>Топпинг &quot;Клубника-Банан&quot; (Промо)</td><td>ТД = 24 часа</td><td>каждая туба</td></tr><tr><td>Соус Бургер Оригинальный</td><td>ТД = 24 часа (вкл. время выдержки 1 час)</td><td>каждая туба</td></tr><tr><td>Соус Пармезан</td><td>ТД = 12 часов (вкл. время выдержки 1 час)</td><td>каждая туба</td></tr><tr><td>Соус Вкус Сезона_Беконез</td><td>ТД = 24 часа (вкл. время выдержки 1 час)</td><td>каждая туба</td></tr><tr><td>Соус Вкус Месяца_Чёрный Ниндзя</td><td>ТД = 24 часа (вкл. время выдержки 1 час)</td><td>каждый сквизер</td></tr><tr><td>Соус Гриль</td><td>ТД = 24 часа (вкл. время выдержки 1 час)</td><td>каждый сквизер</td></tr><tr><td>Соус 4 Сыра</td><td>ТД = 24 часа (вкл. время выдержки 1 час)</td><td>каждая туба</td></tr><tr><td>Соусы dip (в ассортименте)</td><td>ТД = 5 дней</td><td>каждый пэн</td></tr><tr class="is-group"><td colspan="3">Сыр</td></tr><tr><td>Сыр Чеддер</td><td>ТД = 4 часа</td><td>каждый пэн</td></tr><tr><td>Сыр Пармезан</td><td>ТД = 4 часа</td><td>каждый пэн</td></tr><tr><td>Сыр &quot;Микс трёх сыров&quot;</td><td>ТД = 4 часа</td><td>каждый пэн+лёд (при необходимости)</td></tr><tr class="is-group"><td colspan="3">Десерты и напитки</td></tr><tr><td>Драже m&amp;m`s</td><td>ТД = 14 дней</td><td>каждый пэн</td></tr><tr><td>Клубничный топпинг</td><td>ТД = 7 дней</td><td>каждая ванночка для топпинга</td></tr><tr><td>Шоколадный/ Малиновый топпинг (NEW)</td><td>ТД = 30 дней (t +1_+27°C)</td><td>каждая бутылка</td></tr><tr><td>Сироп Пломбир для коктейлей</td><td>ТД = 14 дней</td><td>каждый сиропный танк</td></tr><tr><td>Топпинг &quot;Клубника-Банан&quot; (Промо)</td><td>ТД = 30 дней (t +1_+27°C)</td><td>каждая бутылка</td></tr><tr><td>Вафельный рожок</td><td>ТД = 5 дней - в пэне с крышкой; ТД = 24 часа в диспенсере шейк-машины</td><td>каждый пэн/диспенсер</td></tr><tr><td>Сиропы для кофе (в ассортименте)</td><td>ТД = 30 дней</td><td>открытая бутылка</td></tr><tr class="is-group"><td colspan="3">Овощи и другое</td></tr><tr><td>Салат Aйсберг (все поставщики)</td><td>ТД = 3 часа (вкл. время выдержки 1 час)</td><td>каждый пэн</td></tr><tr><td>Лук свежий полукольца (все поставщики)</td><td>ТД = 3 часа (вкл. время выдержки 1 час)</td><td>каждый пэн</td></tr><tr><td>Томаты (мытые дез., все поставщики)</td><td>ТД = 12 часов</td><td>каждый пэн (+решётка)</td></tr><tr><td>Томаты нарезанные (все поставщики)</td><td>ТД = 3 часа</td><td>каждый пэн (+решётка)</td></tr><tr><td>Огурцы маринованные</td><td>ТД = 24 часа (без рассола)</td><td>каждый пэн (+решётка)</td></tr><tr><td>Молоко</td><td>ТД = 12 часов (срок мытья и дезинфекции контейнера)</td><td>контейнер с молоком</td></tr><tr><td>Кофе зёрна</td><td>ТД = 48 часов</td><td>контейнер кофемашины</td></tr><tr><td>Какао</td><td>ТД = 4 дня</td><td>контейнер с сухой смесью</td></tr><tr><td>Кег пива</td><td>ТД = 5 суток</td><td>каждый кег</td></tr><tr><td>Смесь для мороженого/шейков в ванне Шейк Машины</td><td>ТД = 14 дней</td><td>Каждая ванна шейк-машины</td></tr><tr><td>П = время начала разморозки</td><td>Обновление:</td><td>05.08.2026</td></tr></tbody></table></div>
+        <div class="ku-space s"></div>
+        <a class="ku-btn soft" href="assets/pamyatki/sroki-hraneniya.xls" download><svg class="ku-ico"><use href="#i-download"/></svg> Скачать полный файл (.xls)</a>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center">
+          <button class="ku-btn primary l" onclick="kuCloseMaterials()"><svg class="ku-ico"><use href="#i-left"/></svg> Вернуться к тренажёру</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ═══ СИТУАЦИЯ 1 ═══ -->
+  <div class="ku-page" id="ku-page-s1">
+    <section class="ku-section tight">
+      <div class="ku-wrap narrow">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('home')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 1 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s1" data-task="sort3" data-answer="">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Распредели по станциям</div>
+          <p class="ku-situation__text">Ты начинаешь смену. Тебе нужно разобраться, чем должны заниматься сотрудники на станциях Борт и Фасовка. Распредели действия по блокам «Борт», «Фасовка» и «Другая станция».</p>
+          <p class="ku-small ku-soft">Перетащи каждое действие в нужный блок.</p>
+          <div class="ku-space s"></div>
+          <div data-ku-dnd><div class="ku-pool" id="s1-pool"><span class="ku-chip" id="s1-c1" data-key="c1" data-zone="bort"><svg class="ku-ico s"><use href="#i-grip"/></svg>Приготовить Воппер по стандартам</span><span class="ku-chip" id="s1-c2" data-key="c2" data-zone="fas"><svg class="ku-ico s"><use href="#i-grip"/></svg>Упаковать луковые кольца</span><span class="ku-chip" id="s1-c3" data-key="c3" data-zone="other"><svg class="ku-ico s"><use href="#i-grip"/></svg>Собрать заказ на поднос</span><span class="ku-chip" id="s1-c4" data-key="c4" data-zone="fas"><svg class="ku-ico s"><use href="#i-grip"/></svg>Посолить картофель фри</span><span class="ku-chip" id="s1-c5" data-key="c5" data-zone="fas"><svg class="ku-ico s"><use href="#i-grip"/></svg>Отслеживать таймер на наггетсах</span><span class="ku-chip" id="s1-c6" data-key="c6" data-zone="bort"><svg class="ku-ico s"><use href="#i-grip"/></svg>Поджарить булочки в тостере</span><span class="ku-chip" id="s1-c7" data-key="c7" data-zone="other"><svg class="ku-ico s"><use href="#i-grip"/></svg>Заготовить соус</span></div><div class="ku-space s"></div><div class="ku-zones cols-3"><div class="ku-zone"><div class="ku-zone__label"><svg class="ku-ico s"><use href="#i-grid"/></svg> Борт</div><div class="ku-zone__drop" id="s1-z-bort" data-zone="bort"></div></div><div class="ku-zone"><div class="ku-zone__label"><svg class="ku-ico s"><use href="#i-grid"/></svg> Фасовка</div><div class="ku-zone__drop" id="s1-z-fas" data-zone="fas"></div></div><div class="ku-zone"><div class="ku-zone__label"><svg class="ku-ico s"><use href="#i-grid"/></svg> Другая станция</div><div class="ku-zone__drop" id="s1-z-other" data-zone="other"></div></div></div></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check><svg class="ku-ico"><use href="#i-check"/></svg> Проверить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Отлично!</strong> Ты правильно разделяешь зоны.</div>
+          <div hidden data-fb-no><strong>Не совсем так.</strong> Ты неверно определил обязанности. <b>Борт</b> — приготовить Воппер по стандартам и поджарить булочки в тостере. <b>Фасовка</b> — упаковать луковые кольца, посолить картофель фри, отслеживать таймер на наггетсах. Остальное относится к другим станциям.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s2')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 2 ═══ -->
+  <div class="ku-page" id="ku-page-s2">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s1')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 2 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s2" data-task="multi" data-answer="1,3,4,5">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Выбери все верные варианты</div>
+          <p class="ku-situation__text">Ты проверяешь станцию Борт перед началом смены. Нужно убедиться, что все продукты хранятся правильно. Выбери те продукты, которые могут храниться на станции Борт.</p>
+          <p class="ku-small ku-soft">Верных вариантов несколько.</p>
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Готовые котлеты из PHU</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Сырые котлеты</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Свежие овощи (салат, томаты, лук)</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Соусы и заправки</span></button><button type="button" class="ku-choice" data-val="5"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Булочки для бургеров</span></button><button type="button" class="ku-choice" data-val="6"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Замороженный картофель фри</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Верно!</strong> На Борту хранятся только готовые компоненты для сборки сэндвичей: мясо из PHU, овощи, соусы, булочки. Сырое мясо хранится в пригрильном морозильнике, замороженный картофель — в фасовочной машине.</div>
+          <div hidden data-fb-no><strong>Неверно.</strong> На Борту хранятся только готовые компоненты для сборки сэндвичей: мясо из PHU, овощи, соусы, булочки. Сырое мясо хранится в пригрильном морозильнике, замороженный картофель — в фасовочной машине. Повтори ещё раз, какие продукты готовы к сборке, а какие требуют тепловой обработки.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s3')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 3 ═══ -->
+  <div class="ku-page" id="ku-page-s3">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s2')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 3 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s3" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Найди нарушение</div>
+          <p class="ku-situation__text">Ты идёшь в обход и замечаешь: на Борту стоит пен с нарезанными томатами. Сегодня 18.08, время&nbsp;— 13:02. Изучи таймер на фото. Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-grid cols-2 gap-m"><figure class="ku-figure">
+  <div class="ku-img" style="aspect-ratio:2.6/1"><img src="assets/img/foto-01-taimer-tomaty.jpg" alt="Пен с нарезанными томатами на станции Борт" loading="lazy"></div>
+  <button type="button" class="ku-zoombtn" aria-label="Открыть фото крупнее" onclick="kuZoom('assets/img/foto-01-taimer-tomaty.jpg', 'Пен с нарезанными томатами на Борту')"><svg class="ku-ico"><use href="#i-zoom"/></svg></button>
+  <figcaption>Пен с нарезанными томатами на Борту</figcaption>
+  <script type="application/json" data-gen-prompt="foto-01-taimer-tomaty">{"id": "foto-01-taimer-tomaty", "file": "assets/img/foto-01-taimer-tomaty.jpg", "aspect": "16:7", "title": "Ситуация 3 — просроченные нарезанные томаты", "where": "Уже есть реальное фото. 3D-версия — только по отдельной команде методиста.", "prompt": "Высококачественная кинематографическая 3D-стилизация для семейной анимации, дружелюбные округлые формы, слегка увеличенные головы и выразительные крупные глаза, мягкая матовая кожа с деликатным subsurface scattering, скульптурные волосы, чистые силуэты, стилизованные PBR-материалы, мягкая глобальная иллюминация, детализированная, но не фотореалистичная среда Burger King.\n\nСцена: Крупный план прямоугольного пена из прозрачного поликарбоната, вставленного в направляющую станции Борт из сатинированной нержавеющей стали. В пене плотно уложены крупные округлые ломтики свежих томатов с читаемой мякотью и семенными камерами, слегка усиленный красный цвет, мягкие влажные блики. На переднем торце пена приклеен небольшой белый бумажный стикер-маркировка с двумя короткими строками: время приготовления и время окончания срока хранения. Слева и справа в кадр частично входят соседние пены с листовым салатом. Металл имеет заметную толщину, скруглённую кромку и мелкие рабочие потёртости.\n\nСвет: Ключевой свет — большие нейтрально-белые потолочные панели 4500–5200 K; заполнение — широкие мягкие отражения от белой плитки и сатинированной стали; небольшой тёплый акцент от горячей станции работает как контровой. Мягкие контактные тени под ногами и под гастроёмкостями. Металл — сатинированная нержавейка с широкими мягкими отражениями и скруглённой кромкой, без зеркальных бликов и без выбитых белых пятен.\n\nКамера: предметный close-up, эквивалент 70–90 мм, точка съёмки POV сверху над рабочей поверхностью, лёгкий наклон. Контролируемая глубина резкости: резкость на ключевом объекте, фон станции мягко размыт и имеет меньший контраст.\n\nОбязательные инварианты: цельная геометрия оборудования без разрывов; пять пальцев на каждой видимой руке; оба глаза смотрят в одну точку; фартук, поло, бейдж и сетка для волос — раздельные mesh-слои; разные физические свойства кожи, ткани, металла, стекла и бумаги.\n\nИспользовать чистые простые поверхности вместо длинного текста; официальный логотип, меню, цены и QR-коды добавить отдельными ассетами на этапе композитинга.", "negative": "фотореализм, 2D, аниме, chibi, пластиковая игрушка, восковая кожа, стеклянные глаза, косоглазие, лишние пальцы, повторяющиеся лица, парящие персонажи, однотонное полностью чёрное поло CHBR, CHBR без крупной цветной кокетки или оранжевого верха, фартук закрыл цветную форму CHBR, AUP без маленькой полосатой нашивки, широкая кокетка CHBR на рубашке AUP, рубашка АУП превращается в поло, CHBR в менеджерской рубашке, галстук, кепка и hairnet одновременно, beanie на производстве, knit cap вместо hairnet, вязаная или трикотажная шапка, широкий ребристый отворот, плотный непрозрачный купол, hairnet без видимых мелких ячеек и полупрозрачности, двойной бейдж, фартук срастается с телом, разорванные полосы формы, зеркальная нержавейка, одинаково пластиковые материалы, двойной экран киоска, лишние краны, несколько потоков напитка, бессмысленный текст, искажённый логотип, чрезмерный bloom, клон существующего героя"}</script>
+</figure><figure class="ku-figure">
+  <div class="ku-img" style="aspect-ratio:14/13"><img src="assets/img/foto-01-taimer-detail.jpg" alt="Маркировка на пене крупным планом" loading="lazy"></div>
+  <button type="button" class="ku-zoombtn" aria-label="Открыть фото крупнее" onclick="kuZoom('assets/img/foto-01-taimer-detail.jpg', 'Маркировка на пене крупным планом')"><svg class="ku-ico"><use href="#i-zoom"/></svg></button>
+  <figcaption>Маркировка на пене крупным планом</figcaption>
+  
+</figure></div><div class="ku-space s"></div><div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Сказать сотруднику переложить томаты в пен из новой партии</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Немедленно списать продукт</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Сказать сотруднику использовать, если нет признаков порчи</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Сказать сотруднику перемаркировать на текущее время</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Верно!</strong> Срок хранения нарезанных томатов на Борту — 3 часа. Продукт просрочен на 2 минуты. Использовать такой продукт нельзя: его нужно списать и зафиксировать в журнале отходов.</div>
+          <div hidden data-fb-no><strong>Не совсем так.</strong> Срок хранения нарезанных томатов на Борту — 3 часа. Продукт просрочен на 2 минуты. Использовать такой продукт нельзя. Единственное правильное действие — списание.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s4')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 4 ═══ -->
+  <div class="ku-page" id="ku-page-s4">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s3')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 4 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s4" data-task="single" data-answer="3">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Найди нарушение</div>
+          <p class="ku-situation__text">На станции Борт лежат красные щипцы со значком «аллерген». Ты видишь, что сотрудник берёт ими готовую котлету гамбургер из PHU. Какое нарушение допущено?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Используются щипцы не того цвета</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Щипцы не продезинфицированы перед использованием</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Используются щипцы со значком «аллерген»</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нарушений нет</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Верно!</strong> Инвентарь со значком «аллерген» предназначен строго для аллергенсодержащей продукции (креветки, котлета фиш). Использовать такой инвентарь для основных продуктов запрещено — это может привести к перекрёстному загрязнению.</div>
+          <div hidden data-fb-no><strong>Не совсем так.</strong> Инвентарь со значком «аллерген» предназначен строго для аллергенсодержащей продукции (креветки, котлета фиш). Использовать такой инвентарь для основных продуктов запрещено — это может привести к перекрёстному загрязнению.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s5')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 5 ═══ -->
+  <div class="ku-page" id="ku-page-s5">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s4')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 5 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s5" data-task="single" data-answer="1">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Что ты скажешь сотруднику</div>
+          <p class="ku-situation__text">Сотрудник подходит к тебе и говорит: на Борту рядом стоят две тубы с острым соусом. На одной маркировка «18.08, 08:00», на другой — «18.08, 12:00». Что с этим делать? Что ты ему скажешь?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Использовать в первую очередь тот, что заготовлен 18.08 в 08:00</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Использовать в первую очередь тот, что заготовлен 18.08 в 12:00</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Отнести обе тубы с соусом на мойку</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Перелить соус из одной тубы в другую</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Правильно!</strong> Это принцип FIFO: первым пришёл — первым ушёл. Продукты с более ранней датой вскрытия используются первыми, свежие ставятся позади старых. Смешивать партии запрещено.</div>
+          <div hidden data-fb-no><strong>Не совсем так.</strong> Это принцип FIFO: первым пришёл — первым ушёл. Продукты с более ранней датой вскрытия используются первыми, свежие ставятся позади старых. Смешивать партии запрещено.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s6')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 6 ═══ -->
+  <div class="ku-page" id="ku-page-s6">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s5')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 6 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s6" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Найди нарушение</div>
+          <p class="ku-situation__text">Ты стоишь в зоне выдачи заказов и слышишь, что таймер хранения на фритюре начинает издавать звуковой сигнал: прошло 10 минут со времени приготовления картофеля. Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Сказать сотруднику сбросить таймер и использовать картофель дальше</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Немедленно списать картофель</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Сказать сотруднику перемешать картофель, чтобы он стал свежее</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Сказать сотруднику расфасовать весь готовый картофель</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Верно!</strong> Звуковой сигнал фритюра после приготовления продукта означает, что срок хранения истёк. Такой картофель нельзя использовать — он должен быть списан немедленно.</div>
+          <div hidden data-fb-no><strong>Не совсем так.</strong> Звуковой сигнал фритюра после приготовления продукта означает, что срок хранения истёк. Такой картофель нельзя использовать — он должен быть списан немедленно.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s7')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 7 ═══ -->
+  <div class="ku-page" id="ku-page-s7">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s6')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 7 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s7" data-task="multi" data-answer="1,2,3">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Выбери все верные варианты</div>
+          <p class="ku-situation__text">Перед упаковкой картофеля фри сотрудник должен оценить его качество. Объясни сотруднику, какой картофель нельзя использовать. Выбери все верные варианты.</p>
+          <p class="ku-small ku-soft">Верных вариантов несколько.</p>
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Картофель с истекшим сроком хранения</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Картофель с тёмными пятнами</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Картофель слипшийся, вялый, мягкий</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Картофель с равномерным золотистым цветом, хрустящий</span></button></div><div class="ku-space s"></div><figure class="ku-figure">
+  <div class="ku-img" style="aspect-ratio:4/3"><img src="assets/img/foto-02-fri-kachestvo.jpg" alt="Эталонный картофель фри" loading="lazy"></div>
+  <button type="button" class="ku-zoombtn" aria-label="Открыть фото крупнее" onclick="kuZoom('assets/img/foto-02-fri-kachestvo.jpg', 'Эталон: равномерный золотистый цвет, хрустящая структура, отдельные ломтики не слипаются')"><svg class="ku-ico"><use href="#i-zoom"/></svg></button>
+  <figcaption>Эталон: равномерный золотистый цвет, хрустящая структура, отдельные ломтики не слипаются</figcaption>
+  <script type="application/json" data-gen-prompt="foto-02-fri-kachestvo">{"id": "foto-02-fri-kachestvo", "file": "assets/img/foto-02-fri-kachestvo.jpg", "aspect": "4/3", "title": "Ситуация 7 — эталонный картофель фри", "where": "Уже есть реальное фото. 3D-версия — только по отдельной команде методиста.", "prompt": "Высококачественная кинематографическая 3D-стилизация для семейной анимации, дружелюбные округлые формы, слегка увеличенные головы и выразительные крупные глаза, мягкая матовая кожа с деликатным subsurface scattering, скульптурные волосы, чистые силуэты, стилизованные PBR-материалы, мягкая глобальная иллюминация, детализированная, но не фотореалистичная среда Burger King.\n\nСцена: Аккуратная горка готового картофеля фри на нейтральном светлом фоне без окружения. Ломтики отличаются по длине и слегка изгибаются, лежат крест-накрест с читаемыми промежутками, не слипаются. Равномерный золотисто-жёлтый цвет с чуть более румяными кромками, мягкие жирные блики, лёгкая гранёная фактура среза. Мягкая контактная тень под горкой.\n\nСвет: Ключевой свет — большие нейтрально-белые потолочные панели 4500–5200 K; заполнение — широкие мягкие отражения от белой плитки и сатинированной стали; небольшой тёплый акцент от горячей станции работает как контровой. Мягкие контактные тени под ногами и под гастроёмкостями. Металл — сатинированная нержавейка с широкими мягкими отражениями и скруглённой кромкой, без зеркальных бликов и без выбитых белых пятен.\n\nКамера: предметный close-up, эквивалент 70–90 мм, точка съёмки POV сверху над рабочей поверхностью, лёгкий наклон. Контролируемая глубина резкости: резкость на ключевом объекте, фон станции мягко размыт и имеет меньший контраст.\n\nОбязательные инварианты: цельная геометрия оборудования без разрывов; пять пальцев на каждой видимой руке; оба глаза смотрят в одну точку; фартук, поло, бейдж и сетка для волос — раздельные mesh-слои; разные физические свойства кожи, ткани, металла, стекла и бумаги.\n\nИспользовать чистые простые поверхности вместо длинного текста; официальный логотип, меню, цены и QR-коды добавить отдельными ассетами на этапе композитинга.", "negative": "фотореализм, 2D, аниме, chibi, пластиковая игрушка, восковая кожа, стеклянные глаза, косоглазие, лишние пальцы, повторяющиеся лица, парящие персонажи, однотонное полностью чёрное поло CHBR, CHBR без крупной цветной кокетки или оранжевого верха, фартук закрыл цветную форму CHBR, AUP без маленькой полосатой нашивки, широкая кокетка CHBR на рубашке AUP, рубашка АУП превращается в поло, CHBR в менеджерской рубашке, галстук, кепка и hairnet одновременно, beanie на производстве, knit cap вместо hairnet, вязаная или трикотажная шапка, широкий ребристый отворот, плотный непрозрачный купол, hairnet без видимых мелких ячеек и полупрозрачности, двойной бейдж, фартук срастается с телом, разорванные полосы формы, зеркальная нержавейка, одинаково пластиковые материалы, двойной экран киоска, лишние краны, несколько потоков напитка, бессмысленный текст, искажённый логотип, чрезмерный bloom, клон существующего героя"}</script>
+</figure>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Верно!</strong> Перед упаковкой нужно оценивать качество. Нельзя упаковывать просроченный, с тёмными пятнами, слипшийся или вялый картофель. Гость должен получить только свежий, хрустящий картофель.</div>
+          <div hidden data-fb-no><strong>Не совсем так.</strong> Перед упаковкой нужно оценивать качество. Нельзя упаковывать просроченный, с тёмными пятнами, слипшийся или вялый картофель. Гость должен получить только свежий, хрустящий картофель.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s8')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 8 ═══ -->
+  <div class="ku-page" id="ku-page-s8">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s7')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 8 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s8" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Что делать дальше</div>
+          <p class="ku-situation__text">Ты наблюдаешь за сотрудником на Фасовке: он упаковал картофель фри, затем поставил наггетсы для следующего заказа, но у него остались несобранные заказы. Что ему нужно сделать дальше?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Продолжить собирать закуски</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Продезинфицировать руки</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Надеть фартук</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Надеть перчатки</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Верно!</strong> Перед возвращением на станцию фасовки нужно продезинфицировать руки. На фасовке не требуется ношение перчаток, поэтому мытьё рук не обязательно — но дезинфекция предотвращает перекрёстное загрязнение. Запомни: это не отменяет мытьё рук каждый час.</div>
+          <div hidden data-fb-no><strong>Не совсем так.</strong> Перед возвращением на станцию фасовки нужно продезинфицировать руки. На фасовке не требуется ношение перчаток, поэтому мытьё рук не обязательно — но дезинфекция предотвращает перекрёстное загрязнение. Запомни: это не отменяет мытьё рук каждый час.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s9')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 9 ═══ -->
+  <div class="ku-page" id="ku-page-s9">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s8')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 9 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s9" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Проверь температуру</div>
+          <p class="ku-situation__text">Сотрудник жарит картофель фри. Ты видишь, что на панели фритюра установлена температура 170&nbsp;°C. Правильно ли настроена температура? Что ты должен сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Да, это допустимое значение, ничего делать не нужно</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, температура должна быть 177&nbsp;°C ± 3&nbsp;°C. Нужно приостановить приготовление и списать картофель, проверить настройки фритюра и при необходимости завести заявку на диагностику</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, температура должна быть 182&nbsp;°C ± 3&nbsp;°C. Нужно приостановить приготовление и списать картофель, проверить настройки фритюра и при необходимости завести заявку на диагностику</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Не важно, какая температура, главное — чтобы картофель был визуально готов</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Верно!</strong> Температура для картофеля фри должна быть 177&nbsp;°C ± 3&nbsp;°C. Если температура ниже этого значения, нужно приостановить приготовление и списать картофель, проверить настройки фритюра и при необходимости завести заявку на диагностику.</div>
+          <div hidden data-fb-no><strong>Неверно.</strong> Температура для картофеля фри должна быть 177&nbsp;°C ± 3&nbsp;°C. Если температура ниже этого значения, нужно приостановить приготовление и списать картофель, проверить настройки фритюра и при необходимости завести заявку на диагностику. Отклонение температуры влияет на качество и время приготовления.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s10')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 10 ═══ -->
+  <div class="ku-page" id="ku-page-s10">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s9')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 10 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s10" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Найди нарушение</div>
+          <p class="ku-situation__text">Ты видишь, что сотрудник начал использовать для приготовления продукт с красным мигающим индикатором. Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Сказать сотруднику, что так делать нельзя, и пойти дальше</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Остановить сотрудника, списать продукт и дать корректирующую обратную связь</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Ничего не делать — сотрудник лучше знает, какой продукт ему использовать</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Перезапустить таймер, чтобы продукт можно было использовать</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Правильно!</strong> Мигающий красный индикатор означает, что срок хранения продукта истёк. Использовать такой продукт нельзя — это нарушение пищевой безопасности.</div>
+          <div hidden data-fb-no><strong>Неправильно.</strong> Мигающий красный индикатор означает, что срок хранения продукта истёк. Использовать такой продукт нельзя — это нарушение пищевой безопасности. Нужно убедиться, что сотрудник не продолжит использовать просроченный продукт: игнорировать нарушение и перезапускать таймер категорически запрещено.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s11')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 11 ═══ -->
+  <div class="ku-page" id="ku-page-s11">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s10')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 11 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s11" data-task="single" data-answer="3">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Дай обратную связь</div>
+          <p class="ku-situation__text">Сотрудник жарит картофель фри. Он не встряхивает корзину в процессе жарки после звукового оповещения. Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Ничего — это не обязательно</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Сделать замечание в конце смены</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Объяснить, что корзину нужно встряхнуть после звукового оповещения: без встряхивания картофель слипается и прожаривается неравномерно</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Правильно!</strong> Обратную связь сотруднику нужно дать сразу и объяснить, почему это важно делать.</div>
+          <div hidden data-fb-no><strong>Неправильно.</strong> Обратную связь сотруднику нужно дать сразу и объяснить, почему это важно делать.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s12')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 12 ═══ -->
+  <div class="ku-page" id="ku-page-s12">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s11')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 12 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s12" data-task="single" data-answer="4">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Найди нарушение</div>
+          <p class="ku-situation__text">Ты видишь, что сотрудник обрабатывает поверхность борта дезинфицирующим средством. Он распыляет средство прямо на рабочую поверхность, затем протирает её полотенцем и сразу начинает готовить заказ. Правильно ли он делает? Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Да, всё правильно — так средство лучше распределяется по поверхности. После дезинфекции отправь сотрудника помыть руки</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, после распыления нужно подождать 1 минуту. Скажи сотруднику об этом и после этого отправь мыть руки</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, рабочую поверхность нужно протирать красной тряпкой, смоченной в дезинфицирующем растворе. Покажи сотруднику этот способ и после этого отправь мыть руки</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, средство нужно распылять строго на протирочный материал. Покажи сотруднику правильный способ и после этого отправь мыть руки</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Правильно!</strong> Средство необходимо распылять строго на протирочный материал, а не на поверхность: при распылении на поверхность средство может попасть на продукт. Нужно 5 раз нажать на ручку распылителя и каждый раз использовать новый срез полотенца. Смывать водой не требуется.</div>
+          <div hidden data-fb-no><strong>Неправильно.</strong> Средство необходимо распылять строго на протирочный материал, а не на поверхность: при распылении на поверхность средство может попасть на продукт. Нужно 5 раз нажать на ручку распылителя и каждый раз использовать новый срез полотенца. Смывать водой не требуется.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s13')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 13 ═══ -->
+  <div class="ku-page" id="ku-page-s13">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s12')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 13 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s13" data-task="single" data-answer="3">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Найди нарушение</div>
+          <p class="ku-situation__text">Сотрудник солит картофель фри. Он держит диспенсер с солью на расстоянии 15&nbsp;см от картофеля и при посоле встряхивает солонку. Правильно ли он делает? Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Да, сотрудник всё выполняет верно, ты не вмешиваешься</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, расстояние должно быть 30&nbsp;см — ты корректируешь работу сотрудника</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, расстояние должно быть 30&nbsp;см, а солонку не нужно встряхивать при посоле — ты корректируешь работу сотрудника</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Молодец!</strong> Ты верно определил нарушения и дал сотруднику обратную связь.</div>
+          <div hidden data-fb-no><strong>Не совсем так.</strong> Сотрудник нарушает стандарт по обоим параметрам — тебе необходимо скорректировать его работу.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s14')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 14 ═══ -->
+  <div class="ku-page" id="ku-page-s14">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s13')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 14 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s14" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Найди нарушение</div>
+          <p class="ku-situation__text">Ты заметил, что сотрудник после пополнения продукции на фритюре продолжил ставить закуски, не помыв перед этим руки. Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нарушений нет, можно не реагировать</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Остановить сотрудника, отправить мыть руки и объяснить, что это обязательное правило гигиены</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Сделать замечание в конце смены</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Написать выговор</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Отлично!</strong> Ты должен действовать немедленно: остановить сотрудника, отправить мыть руки и объяснить, почему с этим так строго.</div>
+          <div hidden data-fb-no><strong>Неверно.</strong> Ты должен действовать немедленно: остановить сотрудника, отправить мыть руки и объяснить, почему с этим так строго. Откладывать обратную связь нельзя — ошибка может повториться.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s15')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 15 ═══ -->
+  <div class="ku-page" id="ku-page-s15">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s14')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 15 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s15" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Найди нарушение</div>
+          <p class="ku-situation__text">Ты проверяешь фритюр и видишь скопление панировочных крошек на поверхности масла. Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Ничего — это норма</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Дать указание сотруднику снять крошки шумовкой</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Слить всё масло</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Ничего — сотрудники сами заметят</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Молодец!</strong> Необходимо обязательно дать указание сотрудникам снять крошки, чтобы качество масла не ухудшалось.</div>
+          <div hidden data-fb-no><strong>Неправильно.</strong> Необходимо обязательно дать указание сотрудникам снять крошки, чтобы качество масла не ухудшалось.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s16')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 16 ═══ -->
+  <div class="ku-page" id="ku-page-s16">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s15')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 16 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s16" data-task="single" data-answer="3">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Безопасность на смене</div>
+          <p class="ku-situation__text">Во время смены сотрудник случайно пролил масло на пол. Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Ничего — сотрудник сам уберёт после смены</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Провести инструктаж по технике безопасности</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Попросить сотрудника поставить две таблички «Мокрый пол» в начале и в конце опасного участка и после этого помыть пол</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Попросить сотрудника продолжать работу, а масло убрать позже</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Правильно!</strong> Масло на полу — серьёзная угроза безопасности сотрудников. Необходимо сразу её устранить.</div>
+          <div hidden data-fb-no><strong>Неправильно.</strong> Игнорировать нарушение, откладывать уборку или проводить инструктаж без устранения опасности нельзя — это угроза безопасности. Необходимо сразу её устранить.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s17')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 17 ═══ -->
+  <div class="ku-page" id="ku-page-s17">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s16')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 17 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s17" data-task="single" data-answer="3">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Найди нарушение</div>
+          <p class="ku-situation__text">Ты видишь, что сотрудник перекладывает готовые наггетсы из корзины в пен PHU, и один наггетс падает на поверхность пригрильного морозильника. Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Ничего делать не нужно — сотрудник положит его к остальным готовым наггетсам</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Списать упавший наггетс</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Списать упавший наггетс и напомнить сотруднику правила работы с продуктами</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Промыть наггетс водой и использовать</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Правильно!</strong> Упавший продукт нельзя использовать: Гость может получить небезопасный продукт.</div>
+          <div hidden data-fb-no><strong>Неправильно.</strong> Упавший продукт нельзя использовать: Гость может получить небезопасный продукт. Одного списания мало — сотруднику нужно напомнить правила работы с продуктами.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s18')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 18 ═══ -->
+  <div class="ku-page" id="ku-page-s18">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s17')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 18 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s18" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Заказ Гостя</div>
+          <p class="ku-situation__text">Гость попросил приготовить «Картофель фри без соли». Сотрудник пожарил картофель и высыпал его на фасовку, где лежит солёный картофель. Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Предложить Гостю убрать соль самостоятельно</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Дать указание пожарить отдельную порцию картофеля, после приготовления пересыпать в чистый пен PHU, нафасовать щипцами и передать Гостю</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Сказать сотруднику стряхнуть соль с картофеля</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Дать указание пожарить отдельную порцию картофеля, после приготовления пересыпать в зону фасовки, нафасовать и передать Гостю</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Правильно!</strong> Если Гость заказал картофель без соли, его нужно жарить отдельной партией и фасовать из чистого пена PHU.</div>
+          <div hidden data-fb-no><strong>Неправильно.</strong> Если Гость заказал картофель без соли, его нужно жарить отдельной партией и фасовать из чистого пена PHU.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s19')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 19 ═══ -->
+  <div class="ku-page" id="ku-page-s19">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s18')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 19 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s19" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Управляй процессом</div>
+          <p class="ku-situation__text">Ты видишь беспорядок на станциях Борт и Фасовка. Сотрудники заняты заказами и не убираются. Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Ничего — уборка не входит в обязанности сотрудников</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Дать указание поддерживать чистоту в течение смены и распределить вторичные обязанности по уборке между сотрудниками</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Убрать самому, чтобы не отвлекать сотрудников</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Отложить уборку до конца смены</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Правильно!</strong> Чистота станций — это безопасность продуктов.</div>
+          <div hidden data-fb-no><strong>Неправильно.</strong> Чистота станций — это безопасность продуктов. Ты не должен игнорировать беспорядок или делать всё сам — ты должен управлять процессом.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s20')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 20 ═══ -->
+  <div class="ku-page" id="ku-page-s20">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s19')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 20 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s20" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Проверь температуру</div>
+          <p class="ku-situation__text">Ты проверяешь температуру подогреваемого Борта плоским щупом, прибор показывает 40&nbsp;°C. Соответствует ли это стандарту? Если нет, то что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Да, это допустимое значение, ничего делать не нужно</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, температура должна быть 43&nbsp;°C–49&nbsp;°C. Ты должен завести заявку</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, температура должна быть 50&nbsp;°C–55&nbsp;°C. Ты должен завести заявку</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Не важно, какая температура, главное — чтобы продукты были тёплыми</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Молодец!</strong> Температура подогреваемого борта должна быть 43&nbsp;°C–49&nbsp;°C. Обязательно заводи заявку, если видишь отклонение от нормы.</div>
+          <div hidden data-fb-no><strong>Неверно.</strong> Температура подогреваемого борта должна быть 43&nbsp;°C–49&nbsp;°C. Обязательно заводи заявку, если видишь отклонение от нормы.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s21')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 21 ═══ -->
+  <div class="ku-page" id="ku-page-s21">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s20')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 21 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s21" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Найди нарушение</div>
+          <p class="ku-situation__text">Ты видишь, что сотрудник выкладывает нарезанный салат на Борт сразу после холодильника. Это нарушение? Если да, то что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, салат можно использовать сразу, ничего делать не нужно</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Да, овощи должны быть комнатной температуры, чтобы отдельные продукты не снижали температуру всего блюда и не ухудшали вкус. Ты должен объяснить сотруднику важность выдержки</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Да, овощи должны быть подогреты в микроволновой печи перед использованием. Скажи сотруднику, чтобы он сделал это</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, главное — чтобы овощи были свежими, ничего делать не нужно</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Верно!</strong> Овощи обязательно должны пройти выдержку 1 час при комнатной температуре. Обязательно объясни сотруднику важность выдержки.</div>
+          <div hidden data-fb-no><strong>Неверно.</strong> Овощи обязательно должны пройти выдержку 1 час при комнатной температуре. Обязательно объясни сотруднику важность выдержки.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s22')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 22 ═══ -->
+  <div class="ku-page" id="ku-page-s22">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s21')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 22 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s22" data-task="single" data-answer="2">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Стандарт сборки</div>
+          <p class="ku-situation__text">Ты видишь, что сотрудник собирает Воппер в неправильном порядке. Почему это нарушение? Что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Это не нарушение — главное, чтобы все ингредиенты были в бургере, ничего делать не нужно</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Порядок сборки влияет на вкус, внешний вид и стандарт качества. Ты должен сразу показать правильный порядок сборки</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Порядок сборки влияет на вкус, внешний вид и стандарт качества. Ты можешь показать правильный порядок сборки в конце смены</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Порядок не важен, если бургер собран быстро, ничего делать не нужно</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Супер!</strong> Правильное расположение соуса и ингредиентов даёт сбалансированный вкус. Соблюдение рецептуры гарантирует единый стандарт во всех ресторанах.</div>
+          <div hidden data-fb-no><strong>Неправильно.</strong> Игнорировать нельзя — Гость получит некачественный бургер, что приведёт к негативным отзывам. Правильное расположение соуса и ингредиентов даёт сбалансированный вкус, а соблюдение рецептуры гарантирует единый стандарт во всех ресторанах.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s23')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 23 ═══ -->
+  <div class="ku-page" id="ku-page-s23">
+    <section class="ku-section tight">
+      <div class="ku-wrap measure">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s22')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 23 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s23" data-task="single" data-answer="4">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Проверь температуру</div>
+          <p class="ku-situation__text">Ты проверяешь температуру готовых Крылышек Кинг в PHU. Температура продукта составляет 55&nbsp;°C. Соответствует ли это стандарту? Если нет, что тебе нужно сделать?</p>
+          
+          <div class="ku-space s"></div>
+          <div class="ku-choices" data-picks><button type="button" class="ku-choice" data-val="1"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Да, это допустимое значение для крылышек, ничего делать не нужно</span></button><button type="button" class="ku-choice" data-val="2"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Да, главное — чтобы крылышки были горячими, ничего делать не нужно</span></button><button type="button" class="ku-choice" data-val="3"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, минимальная температура крылышек должна быть 60&nbsp;°C. Шифт смены должен замерить температуру PHU и при необходимости завести заявку</span></button><button type="button" class="ku-choice" data-val="4"><span class="ku-choice__marker"><svg class="ku-ico s"><use href="#i-check"/></svg></span> <span>Нет, минимальная температура крылышек должна быть 60&nbsp;°C. Шифт смены должен замерить температуру PHU, при необходимости завести заявку и списать продукт</span></button></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Ответить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Отлично!</strong> Минимальная температура для крылышек в PHU — 60&nbsp;°C. 55&nbsp;°C ниже нормы: продукт небезопасен и его нельзя использовать.</div>
+          <div hidden data-fb-no><strong>Не совсем так.</strong> Минимальная температура для крылышек в PHU — 60&nbsp;°C. 55&nbsp;°C ниже нормы: продукт небезопасен и его нельзя использовать.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('s24')">Далее <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <!-- ═══ СИТУАЦИЯ 24 ═══ -->
+  <div class="ku-page" id="ku-page-s24">
+    <section class="ku-section tight">
+      <div class="ku-wrap">
+        <div class="ku-navrow">
+          <button class="ku-btn ghost" onclick="kuNavigate('s23')"><svg class="ku-ico"><use href="#i-left"/></svg> Назад</button>
+          <span class="ku-eyebrow">Ситуация 24 из 24</span>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-exercise ku-reveal" data-ku-id="s24" data-task="audit" data-answer="">
+          <div class="ku-exercise__label"><svg class="ku-ico s"><use href="#i-shield"/></svg> Проверка станций</div>
+          <p class="ku-situation__text">Ты проводишь проверку станций Борт и Фасовка. Найди нарушения: отметь каждое фото, на котором видишь нарушение.</p>
+          <p class="ku-small ku-soft">Нажми на фото, чтобы отметить его. Значок лупы открывает фото крупно.</p>
+          <div class="ku-space s"></div>
+          <div class="ku-audit"><div class="ku-audit__item" data-bad="1">
+      <button type="button" class="ku-audit__pick" aria-label="Отметить нарушение: Грязная поверхность борта">
+        <div class="ku-img"><img src="assets/img/foto-03-gryaznyi-bort.jpg" alt="Грязная поверхность борта" loading="lazy"></div>
+      </button>
+      <span class="ku-audit__flag" data-flag>Отмечено</span>
+      <button type="button" class="ku-zoombtn" aria-label="Открыть фото крупнее"
+        onclick="kuZoom('assets/img/foto-03-gryaznyi-bort.jpg', 'Грязная поверхность борта')"><svg class="ku-ico"><use href="#i-zoom"/></svg></button>
+      <div class="ku-audit__note"><b>Грязная поверхность борта</b><span>Остатки салата и панировки на рабочей поверхности станции Борт</span></div>
+      <script type="application/json" data-gen-prompt="foto-03-gryaznyi-bort">{"id": "foto-03-gryaznyi-bort", "file": "assets/img/foto-03-gryaznyi-bort.jpg", "aspect": "3/5", "title": "Ситуация 24 — грязная поверхность борта", "where": "Уже есть реальное фото. 3D-версия — только по отдельной команде методиста.", "prompt": "Высококачественная кинематографическая 3D-стилизация для семейной анимации, дружелюбные округлые формы, слегка увеличенные головы и выразительные крупные глаза, мягкая матовая кожа с деликатным subsurface scattering, скульптурные волосы, чистые силуэты, стилизованные PBR-материалы, мягкая глобальная иллюминация, детализированная, но не фотореалистичная среда Burger King.\n\nСцена: Рабочая поверхность станции Борт из сатинированной нержавеющей стали, снятая под острым углом вдоль линии. На поверхности разбросаны обрывки листового салата крупными кусками и крошки панировки. На дальнем плане в кадр входят края пенов с томатами и салатом. Металл матовый, с мягкими широкими отражениями и следами рабочих царапин; без зеркальной комнаты в отражении.\n\nСвет: Ключевой свет — большие нейтрально-белые потолочные панели 4500–5200 K; заполнение — широкие мягкие отражения от белой плитки и сатинированной стали; небольшой тёплый акцент от горячей станции работает как контровой. Мягкие контактные тени под ногами и под гастроёмкостями. Металл — сатинированная нержавейка с широкими мягкими отражениями и скруглённой кромкой, без зеркальных бликов и без выбитых белых пятен.\n\nКамера: предметный close-up, эквивалент 70–90 мм, точка съёмки POV сверху над рабочей поверхностью, лёгкий наклон. Контролируемая глубина резкости: резкость на ключевом объекте, фон станции мягко размыт и имеет меньший контраст.\n\nОбязательные инварианты: цельная геометрия оборудования без разрывов; пять пальцев на каждой видимой руке; оба глаза смотрят в одну точку; фартук, поло, бейдж и сетка для волос — раздельные mesh-слои; разные физические свойства кожи, ткани, металла, стекла и бумаги.\n\nИспользовать чистые простые поверхности вместо длинного текста; официальный логотип, меню, цены и QR-коды добавить отдельными ассетами на этапе композитинга.", "negative": "фотореализм, 2D, аниме, chibi, пластиковая игрушка, восковая кожа, стеклянные глаза, косоглазие, лишние пальцы, повторяющиеся лица, парящие персонажи, однотонное полностью чёрное поло CHBR, CHBR без крупной цветной кокетки или оранжевого верха, фартук закрыл цветную форму CHBR, AUP без маленькой полосатой нашивки, широкая кокетка CHBR на рубашке AUP, рубашка АУП превращается в поло, CHBR в менеджерской рубашке, галстук, кепка и hairnet одновременно, beanie на производстве, knit cap вместо hairnet, вязаная или трикотажная шапка, широкий ребристый отворот, плотный непрозрачный купол, hairnet без видимых мелких ячеек и полупрозрачности, двойной бейдж, фартук срастается с телом, разорванные полосы формы, зеркальная нержавейка, одинаково пластиковые материалы, двойной экран киоска, лишние краны, несколько потоков напитка, бессмысленный текст, искажённый логотип, чрезмерный bloom, клон существующего героя"}</script>
+    </div><div class="ku-audit__item" data-bad="1">
+      <button type="button" class="ku-audit__pick" aria-label="Отметить нарушение: Сотрудник без перчаток на станции Борт">
+        <div class="ku-img"><img src="assets/img/foto-04-bez-perchatok.jpg" alt="Сотрудник без перчаток на станции Борт" loading="lazy"></div>
+      </button>
+      <span class="ku-audit__flag" data-flag>Отмечено</span>
+      <button type="button" class="ku-zoombtn" aria-label="Открыть фото крупнее"
+        onclick="kuZoom('assets/img/foto-04-bez-perchatok.jpg', 'Сотрудник без перчаток на станции Борт')"><svg class="ku-ico"><use href="#i-zoom"/></svg></button>
+      <div class="ku-audit__note"><b>Сотрудник без перчаток на станции Борт</b><span>Сборка сэндвича голыми руками на станции Борт</span></div>
+      <script type="application/json" data-gen-prompt="foto-04-bez-perchatok">{"id": "foto-04-bez-perchatok", "file": "assets/img/foto-04-bez-perchatok.jpg", "aspect": "5/4", "title": "Ситуация 24 — сборка без перчаток", "where": "Уже есть реальное фото. 3D-версия — только по отдельной команде методиста.", "prompt": "Высококачественная кинематографическая 3D-стилизация для семейной анимации, дружелюбные округлые формы, слегка увеличенные головы и выразительные крупные глаза, мягкая матовая кожа с деликатным subsurface scattering, скульптурные волосы, чистые силуэты, стилизованные PBR-материалы, мягкая глобальная иллюминация, детализированная, но не фотореалистичная среда Burger King.\n\nСцена: POV сверху: лист вощёной обёрточной бумаги лежит на стальной поверхности станции Борт. На бумаге — нижняя половина булочки с обжаренной говяжьей котлетой, рядом вторая половина булочки с ломтиком плавленого сыра. В кадр справа входит одна голая рука взрослого сотрудника без перчатки, держащая стальные щипцы с красной рукояткой и опускающая котлету на булочку. Пять пальцев, естественный контакт пальцев с рукояткой. Булочка мягко сжата, котлета имеет читаемую зернистую поверхность и мягкие жирные блики.\n\nСвет: Ключевой свет — большие нейтрально-белые потолочные панели 4500–5200 K; заполнение — широкие мягкие отражения от белой плитки и сатинированной стали; небольшой тёплый акцент от горячей станции работает как контровой. Мягкие контактные тени под ногами и под гастроёмкостями. Металл — сатинированная нержавейка с широкими мягкими отражениями и скруглённой кромкой, без зеркальных бликов и без выбитых белых пятен.\n\nКамера: предметный close-up, эквивалент 70–90 мм, точка съёмки POV сверху над рабочей поверхностью, лёгкий наклон. Контролируемая глубина резкости: резкость на ключевом объекте, фон станции мягко размыт и имеет меньший контраст.\n\nОбязательные инварианты: цельная геометрия оборудования без разрывов; пять пальцев на каждой видимой руке; оба глаза смотрят в одну точку; фартук, поло, бейдж и сетка для волос — раздельные mesh-слои; разные физические свойства кожи, ткани, металла, стекла и бумаги.\n\nИспользовать чистые простые поверхности вместо длинного текста; официальный логотип, меню, цены и QR-коды добавить отдельными ассетами на этапе композитинга.", "negative": "фотореализм, 2D, аниме, chibi, пластиковая игрушка, восковая кожа, стеклянные глаза, косоглазие, лишние пальцы, повторяющиеся лица, парящие персонажи, однотонное полностью чёрное поло CHBR, CHBR без крупной цветной кокетки или оранжевого верха, фартук закрыл цветную форму CHBR, AUP без маленькой полосатой нашивки, широкая кокетка CHBR на рубашке AUP, рубашка АУП превращается в поло, CHBR в менеджерской рубашке, галстук, кепка и hairnet одновременно, beanie на производстве, knit cap вместо hairnet, вязаная или трикотажная шапка, широкий ребристый отворот, плотный непрозрачный купол, hairnet без видимых мелких ячеек и полупрозрачности, двойной бейдж, фартук срастается с телом, разорванные полосы формы, зеркальная нержавейка, одинаково пластиковые материалы, двойной экран киоска, лишние краны, несколько потоков напитка, бессмысленный текст, искажённый логотип, чрезмерный bloom, клон существующего героя"}</script>
+    </div><div class="ku-audit__item" data-bad="1">
+      <button type="button" class="ku-audit__pick" aria-label="Отметить нарушение: Щипцы лежат не в пене">
+        <div class="ku-img"><img src="assets/img/foto-05-shipcy-ne-v-pene.jpg" alt="Щипцы лежат не в пене" loading="lazy"></div>
+      </button>
+      <span class="ku-audit__flag" data-flag>Отмечено</span>
+      <button type="button" class="ku-zoombtn" aria-label="Открыть фото крупнее"
+        onclick="kuZoom('assets/img/foto-05-shipcy-ne-v-pene.jpg', 'Щипцы лежат не в пене')"><svg class="ku-ico"><use href="#i-zoom"/></svg></button>
+      <div class="ku-audit__note"><b>Щипцы лежат не в пене</b><span>Щипцы положены на крышку гастроёмкости вместо пена</span></div>
+      <script type="application/json" data-gen-prompt="foto-05-shipcy-ne-v-pene">{"id": "foto-05-shipcy-ne-v-pene", "file": "assets/img/foto-05-shipcy-ne-v-pene.jpg", "aspect": "1/1", "title": "Ситуация 24 — щипцы лежат не в пене", "where": "Уже есть реальное фото. 3D-версия — только по отдельной команде методиста.", "prompt": "Высококачественная кинематографическая 3D-стилизация для семейной анимации, дружелюбные округлые формы, слегка увеличенные головы и выразительные крупные глаза, мягкая матовая кожа с деликатным subsurface scattering, скульптурные волосы, чистые силуэты, стилизованные PBR-материалы, мягкая глобальная иллюминация, детализированная, но не фотореалистичная среда Burger King.\n\nСцена: POV сверху: прозрачная поликарбонатная крышка гастроёмкости на станции Борт, на крышке лежат стальные щипцы с ярко-красной пластиковой рукояткой и зубчатыми губками. На крышке и на корпусе ёмкости — жёлто-красные треугольные предупредительные пиктограммы. Ёмкость вставлена в стальную направляющую. Щипцы лежат поперёк крышки, не в продукте.\n\nСвет: Ключевой свет — большие нейтрально-белые потолочные панели 4500–5200 K; заполнение — широкие мягкие отражения от белой плитки и сатинированной стали; небольшой тёплый акцент от горячей станции работает как контровой. Мягкие контактные тени под ногами и под гастроёмкостями. Металл — сатинированная нержавейка с широкими мягкими отражениями и скруглённой кромкой, без зеркальных бликов и без выбитых белых пятен.\n\nКамера: предметный close-up, эквивалент 70–90 мм, точка съёмки POV сверху над рабочей поверхностью, лёгкий наклон. Контролируемая глубина резкости: резкость на ключевом объекте, фон станции мягко размыт и имеет меньший контраст.\n\nОбязательные инварианты: цельная геометрия оборудования без разрывов; пять пальцев на каждой видимой руке; оба глаза смотрят в одну точку; фартук, поло, бейдж и сетка для волос — раздельные mesh-слои; разные физические свойства кожи, ткани, металла, стекла и бумаги.\n\nИспользовать чистые простые поверхности вместо длинного текста; официальный логотип, меню, цены и QR-коды добавить отдельными ассетами на этапе композитинга.", "negative": "фотореализм, 2D, аниме, chibi, пластиковая игрушка, восковая кожа, стеклянные глаза, косоглазие, лишние пальцы, повторяющиеся лица, парящие персонажи, однотонное полностью чёрное поло CHBR, CHBR без крупной цветной кокетки или оранжевого верха, фартук закрыл цветную форму CHBR, AUP без маленькой полосатой нашивки, широкая кокетка CHBR на рубашке AUP, рубашка АУП превращается в поло, CHBR в менеджерской рубашке, галстук, кепка и hairnet одновременно, beanie на производстве, knit cap вместо hairnet, вязаная или трикотажная шапка, широкий ребристый отворот, плотный непрозрачный купол, hairnet без видимых мелких ячеек и полупрозрачности, двойной бейдж, фартук срастается с телом, разорванные полосы формы, зеркальная нержавейка, одинаково пластиковые материалы, двойной экран киоска, лишние краны, несколько потоков напитка, бессмысленный текст, искажённый логотип, чрезмерный bloom, клон существующего героя"}</script>
+    </div><div class="ku-audit__item" data-bad="1">
+      <button type="button" class="ku-audit__pick" aria-label="Отметить нарушение: Сыр без бортового таймера">
+        <div class="ku-img"><img src="assets/img/foto-06-syr-bez-taimera.jpg" alt="Сыр без бортового таймера" loading="lazy"></div>
+      </button>
+      <span class="ku-audit__flag" data-flag>Отмечено</span>
+      <button type="button" class="ku-zoombtn" aria-label="Открыть фото крупнее"
+        onclick="kuZoom('assets/img/foto-06-syr-bez-taimera.jpg', 'Сыр без бортового таймера')"><svg class="ku-ico"><use href="#i-zoom"/></svg></button>
+      <div class="ku-audit__note"><b>Сыр без бортового таймера</b><span>Пен с сыром на Борту без бортового таймера</span></div>
+      <script type="application/json" data-gen-prompt="foto-06-syr-bez-taimera">{"id": "foto-06-syr-bez-taimera", "file": "assets/img/foto-06-syr-bez-taimera.jpg", "aspect": "2/3", "title": "Ситуация 24 — сыр без бортового таймера", "where": "Уже есть реальное фото. 3D-версия — только по отдельной команде методиста.", "prompt": "Высококачественная кинематографическая 3D-стилизация для семейной анимации, дружелюбные округлые формы, слегка увеличенные головы и выразительные крупные глаза, мягкая матовая кожа с деликатным subsurface scattering, скульптурные волосы, чистые силуэты, стилизованные PBR-материалы, мягкая глобальная иллюминация, детализированная, но не фотореалистичная среда Burger King.\n\nСцена: POV сверху: прямоугольный прозрачный пен, вставленный в стальную ванну станции Борт. Внутри — три аккуратные стопки нарезанного плавленого сыра тёплого жёлтого цвета, ломтики читаются отдельными слоями с мягкими краями. Над пеном свободная стальная планка без бортового таймера — место таймера пустое. На торце пена небольшой белый бумажный стикер-маркировка.\n\nСвет: Ключевой свет — большие нейтрально-белые потолочные панели 4500–5200 K; заполнение — широкие мягкие отражения от белой плитки и сатинированной стали; небольшой тёплый акцент от горячей станции работает как контровой. Мягкие контактные тени под ногами и под гастроёмкостями. Металл — сатинированная нержавейка с широкими мягкими отражениями и скруглённой кромкой, без зеркальных бликов и без выбитых белых пятен.\n\nКамера: предметный close-up, эквивалент 70–90 мм, точка съёмки POV сверху над рабочей поверхностью, лёгкий наклон. Контролируемая глубина резкости: резкость на ключевом объекте, фон станции мягко размыт и имеет меньший контраст.\n\nОбязательные инварианты: цельная геометрия оборудования без разрывов; пять пальцев на каждой видимой руке; оба глаза смотрят в одну точку; фартук, поло, бейдж и сетка для волос — раздельные mesh-слои; разные физические свойства кожи, ткани, металла, стекла и бумаги.\n\nИспользовать чистые простые поверхности вместо длинного текста; официальный логотип, меню, цены и QR-коды добавить отдельными ассетами на этапе композитинга.", "negative": "фотореализм, 2D, аниме, chibi, пластиковая игрушка, восковая кожа, стеклянные глаза, косоглазие, лишние пальцы, повторяющиеся лица, парящие персонажи, однотонное полностью чёрное поло CHBR, CHBR без крупной цветной кокетки или оранжевого верха, фартук закрыл цветную форму CHBR, AUP без маленькой полосатой нашивки, широкая кокетка CHBR на рубашке AUP, рубашка АУП превращается в поло, CHBR в менеджерской рубашке, галстук, кепка и hairnet одновременно, beanie на производстве, knit cap вместо hairnet, вязаная или трикотажная шапка, широкий ребристый отворот, плотный непрозрачный купол, hairnet без видимых мелких ячеек и полупрозрачности, двойной бейдж, фартук срастается с телом, разорванные полосы формы, зеркальная нержавейка, одинаково пластиковые материалы, двойной экран киоска, лишние краны, несколько потоков напитка, бессмысленный текст, искажённый логотип, чрезмерный bloom, клон существующего героя"}</script>
+    </div><div class="ku-audit__item" data-bad="1">
+      <button type="button" class="ku-audit__pick" aria-label="Отметить нарушение: В одной упаковке два вида картофеля">
+        <div class="ku-img"><img src="assets/img/foto-07-dva-vida-kartofelya.jpg" alt="В одной упаковке два вида картофеля" loading="lazy"></div>
+      </button>
+      <span class="ku-audit__flag" data-flag>Отмечено</span>
+      <button type="button" class="ku-zoombtn" aria-label="Открыть фото крупнее"
+        onclick="kuZoom('assets/img/foto-07-dva-vida-kartofelya.jpg', 'В одной упаковке два вида картофеля')"><svg class="ku-ico"><use href="#i-zoom"/></svg></button>
+      <div class="ku-audit__note"><b>В одной упаковке два вида картофеля</b><span>Картофель фри и картофельные дольки в одной упаковке</span></div>
+      <script type="application/json" data-gen-prompt="foto-07-dva-vida-kartofelya">{"id": "foto-07-dva-vida-kartofelya", "file": "assets/img/foto-07-dva-vida-kartofelya.jpg", "aspect": "1/1", "title": "Ситуация 24 — два вида картофеля в одной упаковке", "where": "Уже есть реальное фото. 3D-версия — только по отдельной команде методиста.", "prompt": "Высококачественная кинематографическая 3D-стилизация для семейной анимации, дружелюбные округлые формы, слегка увеличенные головы и выразительные крупные глаза, мягкая матовая кожа с деликатным subsurface scattering, скульптурные волосы, чистые силуэты, стилизованные PBR-материалы, мягкая глобальная иллюминация, детализированная, но не фотореалистичная среда Burger King.\n\nСцена: Одна рука взрослого сотрудника держит открытый белый бумажный пакет-упаковку для закусок. Внутри одновременно лежат тонкий соломкой картофель фри и крупные картофельные дольки с румяной кожицей — два разных продукта в одной упаковке. Бумага матовая, с видимой волокнистой фактурой и мягкими сгибами. Фон — размытая стальная поверхность фасовки. Пять пальцев, естественный обхват упаковки.\n\nСвет: Ключевой свет — большие нейтрально-белые потолочные панели 4500–5200 K; заполнение — широкие мягкие отражения от белой плитки и сатинированной стали; небольшой тёплый акцент от горячей станции работает как контровой. Мягкие контактные тени под ногами и под гастроёмкостями. Металл — сатинированная нержавейка с широкими мягкими отражениями и скруглённой кромкой, без зеркальных бликов и без выбитых белых пятен.\n\nКамера: предметный close-up, эквивалент 70–90 мм, точка съёмки POV сверху над рабочей поверхностью, лёгкий наклон. Контролируемая глубина резкости: резкость на ключевом объекте, фон станции мягко размыт и имеет меньший контраст.\n\nОбязательные инварианты: цельная геометрия оборудования без разрывов; пять пальцев на каждой видимой руке; оба глаза смотрят в одну точку; фартук, поло, бейдж и сетка для волос — раздельные mesh-слои; разные физические свойства кожи, ткани, металла, стекла и бумаги.\n\nИспользовать чистые простые поверхности вместо длинного текста; официальный логотип, меню, цены и QR-коды добавить отдельными ассетами на этапе композитинга.", "negative": "фотореализм, 2D, аниме, chibi, пластиковая игрушка, восковая кожа, стеклянные глаза, косоглазие, лишние пальцы, повторяющиеся лица, парящие персонажи, однотонное полностью чёрное поло CHBR, CHBR без крупной цветной кокетки или оранжевого верха, фартук закрыл цветную форму CHBR, AUP без маленькой полосатой нашивки, широкая кокетка CHBR на рубашке AUP, рубашка АУП превращается в поло, CHBR в менеджерской рубашке, галстук, кепка и hairnet одновременно, beanie на производстве, knit cap вместо hairnet, вязаная или трикотажная шапка, широкий ребристый отворот, плотный непрозрачный купол, hairnet без видимых мелких ячеек и полупрозрачности, двойной бейдж, фартук срастается с телом, разорванные полосы формы, зеркальная нержавейка, одинаково пластиковые материалы, двойной экран киоска, лишние краны, несколько потоков напитка, бессмысленный текст, искажённый логотип, чрезмерный bloom, клон существующего героя"}</script>
+    </div><div class="ku-audit__item" data-bad="1">
+      <button type="button" class="ku-audit__pick" aria-label="Отметить нарушение: Наггетсы без таймера">
+        <div class="ku-img"><img src="assets/img/foto-08-naggetsy-bez-taimera.jpg" alt="Наггетсы без таймера" loading="lazy"></div>
+      </button>
+      <span class="ku-audit__flag" data-flag>Отмечено</span>
+      <button type="button" class="ku-zoombtn" aria-label="Открыть фото крупнее"
+        onclick="kuZoom('assets/img/foto-08-naggetsy-bez-taimera.jpg', 'Наггетсы без таймера')"><svg class="ku-ico"><use href="#i-zoom"/></svg></button>
+      <div class="ku-audit__note"><b>Наггетсы без таймера</b><span>Упакованные наггетсы без отметки времени приготовления</span></div>
+      <script type="application/json" data-gen-prompt="foto-08-naggetsy-bez-taimera">{"id": "foto-08-naggetsy-bez-taimera", "file": "assets/img/foto-08-naggetsy-bez-taimera.jpg", "aspect": "1/1", "title": "Ситуация 24 — наггетсы без таймера", "where": "Уже есть реальное фото. 3D-версия — только по отдельной команде методиста.", "prompt": "Высококачественная кинематографическая 3D-стилизация для семейной анимации, дружелюбные округлые формы, слегка увеличенные головы и выразительные крупные глаза, мягкая матовая кожа с деликатным subsurface scattering, скульптурные волосы, чистые силуэты, стилизованные PBR-материалы, мягкая глобальная иллюминация, детализированная, но не фотореалистичная среда Burger King.\n\nСцена: POV сверху в открытый белый бумажный пакет-упаковку: внутри лежат два-три куриных наггетса с крупной неровной панировкой из читаемых комочков, тёплый золотистый цвет. Ни на упаковке, ни рядом нет отметки времени приготовления и таймера. Фон — размытая стальная решётка зоны фасовки.\n\nСвет: Ключевой свет — большие нейтрально-белые потолочные панели 4500–5200 K; заполнение — широкие мягкие отражения от белой плитки и сатинированной стали; небольшой тёплый акцент от горячей станции работает как контровой. Мягкие контактные тени под ногами и под гастроёмкостями. Металл — сатинированная нержавейка с широкими мягкими отражениями и скруглённой кромкой, без зеркальных бликов и без выбитых белых пятен.\n\nКамера: предметный close-up, эквивалент 70–90 мм, точка съёмки POV сверху над рабочей поверхностью, лёгкий наклон. Контролируемая глубина резкости: резкость на ключевом объекте, фон станции мягко размыт и имеет меньший контраст.\n\nОбязательные инварианты: цельная геометрия оборудования без разрывов; пять пальцев на каждой видимой руке; оба глаза смотрят в одну точку; фартук, поло, бейдж и сетка для волос — раздельные mesh-слои; разные физические свойства кожи, ткани, металла, стекла и бумаги.\n\nИспользовать чистые простые поверхности вместо длинного текста; официальный логотип, меню, цены и QR-коды добавить отдельными ассетами на этапе композитинга.", "negative": "фотореализм, 2D, аниме, chibi, пластиковая игрушка, восковая кожа, стеклянные глаза, косоглазие, лишние пальцы, повторяющиеся лица, парящие персонажи, однотонное полностью чёрное поло CHBR, CHBR без крупной цветной кокетки или оранжевого верха, фартук закрыл цветную форму CHBR, AUP без маленькой полосатой нашивки, широкая кокетка CHBR на рубашке AUP, рубашка АУП превращается в поло, CHBR в менеджерской рубашке, галстук, кепка и hairnet одновременно, beanie на производстве, knit cap вместо hairnet, вязаная или трикотажная шапка, широкий ребристый отворот, плотный непрозрачный купол, hairnet без видимых мелких ячеек и полупрозрачности, двойной бейдж, фартук срастается с телом, разорванные полосы формы, зеркальная нержавейка, одинаково пластиковые материалы, двойной экран киоска, лишние краны, несколько потоков напитка, бессмысленный текст, искажённый логотип, чрезмерный bloom, клон существующего героя"}</script>
+    </div><div class="ku-audit__item" data-bad="1">
+      <button type="button" class="ku-audit__pick" aria-label="Отметить нарушение: В использовании почти пустая солонка">
+        <div class="ku-img"><img src="assets/img/foto-09-pustaya-solonka.jpg" alt="В использовании почти пустая солонка" loading="lazy"></div>
+      </button>
+      <span class="ku-audit__flag" data-flag>Отмечено</span>
+      <button type="button" class="ku-zoombtn" aria-label="Открыть фото крупнее"
+        onclick="kuZoom('assets/img/foto-09-pustaya-solonka.jpg', 'В использовании почти пустая солонка')"><svg class="ku-ico"><use href="#i-zoom"/></svg></button>
+      <div class="ku-audit__note"><b>В использовании почти пустая солонка</b><span>Диспенсер для соли почти пуст, но остаётся в работе</span></div>
+      <script type="application/json" data-gen-prompt="foto-09-pustaya-solonka">{"id": "foto-09-pustaya-solonka", "file": "assets/img/foto-09-pustaya-solonka.jpg", "aspect": "5/6", "title": "Ситуация 24 — почти пустая солонка", "where": "Уже есть реальное фото. 3D-версия — только по отдельной команде методиста.", "prompt": "Высококачественная кинематографическая 3D-стилизация для семейной анимации, дружелюбные округлые формы, слегка увеличенные головы и выразительные крупные глаза, мягкая матовая кожа с деликатным subsurface scattering, скульптурные волосы, чистые силуэты, стилизованные PBR-материалы, мягкая глобальная иллюминация, детализированная, но не фотореалистичная среда Burger King.\n\nСцена: Прозрачный янтарно-жёлтый пластиковый диспенсер для соли, закреплённый на стальном кронштейне над зоной фасовки. Корпус цилиндрический с воронкой сверху и боковой ручкой-рычагом; нижнее кольцо — ярко-зелёный пластик. Внутри соли осталось меньше четверти объёма, уровень хорошо читается через стенку. На фоне мягко размыты упакованные порции картофеля фри под лампами подогрева.\n\nСвет: Ключевой свет — большие нейтрально-белые потолочные панели 4500–5200 K; заполнение — широкие мягкие отражения от белой плитки и сатинированной стали; небольшой тёплый акцент от горячей станции работает как контровой. Мягкие контактные тени под ногами и под гастроёмкостями. Металл — сатинированная нержавейка с широкими мягкими отражениями и скруглённой кромкой, без зеркальных бликов и без выбитых белых пятен.\n\nКамера: предметный close-up, эквивалент 70–90 мм, точка съёмки POV сверху над рабочей поверхностью, лёгкий наклон. Контролируемая глубина резкости: резкость на ключевом объекте, фон станции мягко размыт и имеет меньший контраст.\n\nОбязательные инварианты: цельная геометрия оборудования без разрывов; пять пальцев на каждой видимой руке; оба глаза смотрят в одну точку; фартук, поло, бейдж и сетка для волос — раздельные mesh-слои; разные физические свойства кожи, ткани, металла, стекла и бумаги.\n\nИспользовать чистые простые поверхности вместо длинного текста; официальный логотип, меню, цены и QR-коды добавить отдельными ассетами на этапе композитинга.", "negative": "фотореализм, 2D, аниме, chibi, пластиковая игрушка, восковая кожа, стеклянные глаза, косоглазие, лишние пальцы, повторяющиеся лица, парящие персонажи, однотонное полностью чёрное поло CHBR, CHBR без крупной цветной кокетки или оранжевого верха, фартук закрыл цветную форму CHBR, AUP без маленькой полосатой нашивки, широкая кокетка CHBR на рубашке AUP, рубашка АУП превращается в поло, CHBR в менеджерской рубашке, галстук, кепка и hairnet одновременно, beanie на производстве, knit cap вместо hairnet, вязаная или трикотажная шапка, широкий ребристый отворот, плотный непрозрачный купол, hairnet без видимых мелких ячеек и полупрозрачности, двойной бейдж, фартук срастается с телом, разорванные полосы формы, зеркальная нержавейка, одинаково пластиковые материалы, двойной экран киоска, лишние краны, несколько потоков напитка, бессмысленный текст, искажённый логотип, чрезмерный bloom, клон существующего героя"}</script>
+    </div></div>
+          <div class="ku-space s"></div>
+          <button class="ku-btn primary" data-check disabled><svg class="ku-ico"><use href="#i-check"/></svg> Проверить</button>
+          <div class="ku-feedback" data-fb></div>
+          <div hidden data-fb-ok><strong>Отлично!</strong> Ты нашёл все нарушения.</div>
+          <div hidden data-fb-no><strong>Не совсем так.</strong> Нарушение есть на каждом фото — здесь нет ни одной корректной ситуации. Посмотри подписи под фотографиями.</div>
+        </div>
+
+        <div class="ku-space l"></div>
+        <div class="ku-row center" data-next hidden>
+          <button class="ku-btn primary l" onclick="kuNavigate('finish')">К финалу <svg class="ku-ico arrow"><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ═══ ФИНАЛ: результат, сводка и ЕДИНСТВЕННАЯ кнопка завершения ═══ -->
+  <div class="ku-page" id="ku-page-finish">
+    <section class="ku-section">
+      <div class="ku-wrap measure ku-center">
+        <div class="ku-icon-badge solid" style="margin-inline:auto"><svg class="ku-ico"><use href="#i-trophy"/></svg></div>
+        <div class="ku-space s"></div>
+        <h2 class="ku-h1">Поздравляем!</h2>
+        <p class="ku-lead">Ты успешно прошёл тренажёр и научился контролировать качество
+          и безопасность на этапе сборки и упаковки готовых продуктов.</p>
+        <div class="ku-space m"></div>
+
+        <div class="ku-grid cols-2 gap-m" style="text-align:left">
+          <div class="ku-stat">
+            <div class="ku-stat__icon"><svg class="ku-ico l"><use href="#i-check-c"/></svg></div>
+            <div class="ku-stat__num"><span id="score-right">0</span> / 24</div>
+            <div class="ku-stat__label">ситуаций решено верно с первой попытки</div>
+          </div>
+          <div class="ku-stat">
+            <div class="ku-stat__icon"><svg class="ku-ico l"><use href="#i-list"/></svg></div>
+            <div class="ku-stat__num" id="score-done">0</div>
+            <div class="ku-stat__label">ситуаций пройдено из 24</div>
+          </div>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-callout warning ku-reveal" id="score-hint" hidden style="text-align:left">
+          <span class="ku-callout__icon"><svg class="ku-ico l"><use href="#i-alert"/></svg></span>
+          <div><div class="ku-callout__title">Стоит повторить</div>
+            <p>Ситуации с ошибкой: <b id="score-bad">—</b>. Вернись к ним и перечитай разбор —
+              кнопка «Назад» проведёт по всем экранам.</p></div>
+        </div>
+        <div class="ku-space m"></div>
+
+        <div class="ku-report" data-ku-report="itog,oshibki" style="text-align:left"></div>
+        <div class="ku-space s"></div>
+        <div class="ku-row center">
+          <button class="ku-btn soft" data-ku-report-copy><svg class="ku-ico"><use href="#i-copy"/></svg> Скопировать сводку</button>
+          <button class="ku-btn soft" data-ku-report-download><svg class="ku-ico"><use href="#i-download"/></svg> Скачать .txt</button>
+        </div>
+        <div class="ku-space l"></div>
+
+        <button class="ku-btn primary l" data-ku-complete><svg class="ku-ico"><use href="#i-check"/></svg> Завершить тренажёр</button>
+        <p class="ku-caption" style="margin-top:0.8em">Кнопка передаёт в LMS статус «Пройден».</p>
+        <div class="ku-space m"></div>
+        <button class="ku-btn ghost" onclick="kuNavigate('home')"><svg class="ku-ico"><use href="#i-home"/></svg> К началу тренажёра</button>
+
+        <!-- Переменные сводки заполняются движком тренажёра -->
+        <input type="hidden" data-ku-var="itog" data-ku-label="Результат тренажёра">
+        <input type="hidden" data-ku-var="oshibki" data-ku-label="Ситуации с ошибкой">
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- Фото крупно -->
+<div class="ku-modal-overlay" id="ku-lightbox">
+  <div class="ku-modal wide" role="dialog" aria-modal="true" aria-label="Фотография крупным планом">
+    <button class="ku-modal__close" data-ku-modal-close aria-label="Закрыть"><svg class="ku-ico"><use href="#i-x-c"/></svg></button>
+    <img id="ku-lightbox-img" alt="">
+    <p class="ku-caption" id="ku-lightbox-cap" style="margin-top:0.7em"></p>
+  </div>
+</div>
+
+<!-- Промт заглушки: для агента-генератора графики -->
+<div class="ku-modal-overlay" id="ku-promptbox">
+  <div class="ku-modal wide" role="dialog" aria-modal="true" aria-labelledby="pb-title">
+    <button class="ku-modal__close" data-ku-modal-close aria-label="Закрыть"><svg class="ku-ico"><use href="#i-x-c"/></svg></button>
+    <div class="ku-icon-badge solid"><svg class="ku-ico"><use href="#i-image"/></svg></div>
+    <div class="ku-space s"></div>
+    <h3 class="ku-h3" id="pb-title"></h3>
+    <p class="ku-caption" id="pb-file"></p>
+    <div class="ku-space s"></div>
+    <div class="ku-prompt-text" id="pb-text"></div>
+    <div class="ku-space s"></div>
+    <div class="ku-row center">
+      <button class="ku-btn primary" onclick="kuCopyPrompt(this)"><svg class="ku-ico"><use href="#i-copy"/></svg> Скопировать промт</button>
+      <button class="ku-btn soft" data-ku-modal-close>Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/kuds.js"></script>
+<script src="js/ku-scorm.js"></script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   ДВИЖОК ТРЕНАЖЁРА — по docs/MECHANICS.md §3 (собственная проверка).
+   Одна механика на все ситуации: отметить → «Ответить» → разбор → «Далее».
+   SCORM/прогресс — не здесь, всё в js/ku-scorm.js.
+   ═══════════════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+
+  var SIT = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13", "s14", "s15", "s16", "s17", "s18", "s19", "s20", "s21", "s22", "s23", "s24"];
+  var RESULTS = {};                 // id ситуации → true/false (первая попытка)
+
+  /* ── 1. Заглушки графики ───────────────────────────────────────────────
+     Слот пробует загрузить файл: есть — показываем картинку (плейсхолдер
+     ДС прячется сам), нет — остаётся заглушка с промтом для агента. */
+  function initGenSlots() {
+    document.querySelectorAll("img[data-gen-src]").forEach(function (img) {
+      var src = img.getAttribute("data-gen-src");
+      var probe = new Image();
+      probe.onload = function () { img.src = src; };
+      probe.src = src;
+    });
+  }
+
+  /* ── 2. Промт заглушки: показать и скопировать ───────────────────────── */
+  window.kuShowPrompt = function (id) {
+    var node = document.querySelector('script[data-gen-prompt="' + id + '"]');
+    if (!node) return;
+    var d = JSON.parse(node.textContent);
+    document.getElementById("pb-title").textContent = d.title;
+    document.getElementById("pb-file").textContent = d.file + " · " + d.aspect + " · " + d.where;
+    document.getElementById("pb-text").textContent =
+      d.prompt + "\n\n--- NEGATIVE PROMPT ---\n" + d.negative;
+    kuOpenModal("ku-promptbox");
+  };
+  window.kuCopyPrompt = function (btn) {
+    var t = document.getElementById("pb-text").textContent;
+    if (navigator.clipboard) navigator.clipboard.writeText(t);
+    var old = btn.innerHTML;
+    btn.textContent = "Скопировано!";
+    setTimeout(function () { btn.innerHTML = old; }, 1400);
+  };
+
+  /* ── 3. Фото крупным планом ──────────────────────────────────────────── */
+  window.kuZoom = function (src, cap) {
+    var img = document.getElementById("ku-lightbox-img");
+    img.src = src; img.alt = cap || "";
+    document.getElementById("ku-lightbox-cap").textContent = cap || "";
+    kuOpenModal("ku-lightbox");
+  };
+
+  /* ── 4. Материалы: уходим и возвращаемся на тот же экран ─────────────── */
+  var lastPage = "home";
+  window.kuOpenMaterials = function () {
+    var cur = document.querySelector(".ku-page.active");
+    if (cur && cur.id !== "ku-page-mat") lastPage = cur.id.replace("ku-page-", "");
+    kuNavigate("mat");
+  };
+  window.kuCloseMaterials = function () { kuNavigate(lastPage); };
+
+  /* ── 5. Выбор варианта ────────────────────────────────────────────────
+     Слушатель висит на контейнере и гасит всплытие: делегирование kuds.js
+     проверяет ответ мгновенно, а нам нужна отложенная проверка. */
+  function initPicks() {
+    document.querySelectorAll("[data-task]").forEach(function (ex) {
+      var mode = ex.dataset.task;
+      var picks = ex.querySelector("[data-picks]");
+      if (picks) {
+        picks.addEventListener("click", function (e) {
+          var btn = e.target.closest(".ku-choice");
+          if (!btn || !picks.contains(btn)) return;
+          e.stopPropagation();
+          if (ex.classList.contains("is-answered") || btn.disabled) return;
+          if (mode === "single") {
+            picks.querySelectorAll(".ku-choice").forEach(function (b) { b.classList.remove("is-picked"); });
+            btn.classList.add("is-picked");
+          } else {
+            btn.classList.toggle("is-picked");
+          }
+          syncCheck(ex);
+        });
+      }
+      ex.querySelectorAll(".ku-audit__pick").forEach(function (b) {
+        b.addEventListener("click", function () {
+          if (ex.classList.contains("is-answered")) return;
+          b.closest(".ku-audit__item").classList.toggle("is-picked");
+          syncCheck(ex);
+        });
+      });
+      var check = ex.querySelector("[data-check]");
+      if (check) check.addEventListener("click", function () { verify(ex); });
+    });
+  }
+
+  function syncCheck(ex) {
+    var btn = ex.querySelector("[data-check]");
+    if (!btn || ex.dataset.task === "sort3") return;
+    btn.disabled = !ex.querySelector(".ku-choice.is-picked, .ku-audit__item.is-picked");
+  }
+
+  /* ── 6. Проверка ─────────────────────────────────────────────────────── */
+  function verify(ex) {
+    if (ex.classList.contains("is-answered")) return;
+    var mode = ex.dataset.task, ok = true, response = "";
+
+    if (mode === "single" || mode === "multi") {
+      var ans = (ex.dataset.answer || "").split(",");
+      var vals = [];
+      ex.querySelectorAll("[data-picks] .ku-choice").forEach(function (b) {
+        var picked = b.classList.contains("is-picked");
+        var right = ans.indexOf(b.dataset.val) !== -1;
+        if (picked) vals.push(b.dataset.val);
+        if (picked !== right) ok = false;
+        b.classList.remove("is-picked");
+        if (right && picked) b.classList.add("correct");
+        else if (right && !picked) b.classList.add("missed");
+        else if (!right && picked) b.classList.add("wrong");
+        b.disabled = true;
+      });
+      response = vals.sort().join("+");
+
+    } else if (mode === "sort3") {
+      var placed = [];
+      ex.querySelectorAll(".ku-chip").forEach(function (chip) {
+        var drop = chip.closest(".ku-zone__drop");
+        var right = ex.querySelector('.ku-zone__drop[data-zone="' + chip.dataset.zone + '"]');
+        var wasRight = drop === right;
+        if (!wasRight) ok = false;
+        placed.push(chip.dataset.key + ":" + (drop ? drop.dataset.zone : "-"));
+        right.appendChild(chip);                    // раскладываем по верным зонам
+        chip.classList.add(wasRight ? "correct" : "wrong");
+        chip.setAttribute("draggable", "false");
+      });
+      response = placed.join(",");
+
+    } else if (mode === "audit") {
+      var picked = [];
+      ex.querySelectorAll(".ku-audit__item").forEach(function (it, i) {
+        var bad = it.dataset.bad === "1";
+        var isPicked = it.classList.contains("is-picked");
+        if (isPicked) picked.push(String(i + 1));
+        if (isPicked !== bad) ok = false;
+        it.classList.remove("is-picked");
+        var flag = it.querySelector("[data-flag]");
+        if (bad && isPicked) { it.classList.add("correct"); flag.textContent = "Нарушение найдено"; }
+        else if (bad && !isPicked) { it.classList.add("missed"); flag.textContent = "Пропущено"; }
+        else if (!bad && isPicked) { it.classList.add("wrong"); flag.textContent = "Здесь нарушения нет"; }
+        it.querySelector(".ku-audit__pick").disabled = true;
+      });
+      ex.querySelector(".ku-audit").classList.add("checked");
+      response = picked.join("+");
+    }
+
+    reveal(ex, ok);
+    RESULTS[ex.dataset.kuId] = ok;
+    if (window.KU) {
+      window.KU.progress.markDone(ex.dataset.kuId);
+      window.KU.lms.interaction(ex.dataset.kuId, response, ok ? "correct" : "wrong");
+    }
+    persist();
+  }
+
+  /* Показ разбора и разблокировка кнопки «Далее» */
+  function reveal(ex, ok) {
+    ex.classList.add("is-answered");
+    var fb = ex.querySelector("[data-fb]");
+    var tpl = ex.querySelector(ok ? "[data-fb-ok]" : "[data-fb-no]");
+    fb.className = "ku-feedback show " + (ok ? "correct" : "incorrect");
+    fb.innerHTML = '<svg class="ku-ico"><use href="#' + (ok ? "i-check-c" : "i-alert") + '"/></svg>' +
+                   "<span>" + tpl.innerHTML + "</span>";
+    var check = ex.querySelector("[data-check]");
+    if (check) check.hidden = true;
+    var page = ex.closest(".ku-page");
+    var next = page && page.querySelector("[data-next]");
+    if (next) next.hidden = false;
+  }
+
+  /* Восстановление после перезагрузки: показываем разбор и верные ответы */
+  function replay(ex, ok) {
+    var mode = ex.dataset.task;
+    if (mode === "single" || mode === "multi") {
+      var ans = (ex.dataset.answer || "").split(",");
+      ex.querySelectorAll("[data-picks] .ku-choice").forEach(function (b) {
+        if (ans.indexOf(b.dataset.val) !== -1) b.classList.add("correct");
+        b.disabled = true;
+      });
+    } else if (mode === "sort3") {
+      ex.querySelectorAll(".ku-chip").forEach(function (chip) {
+        ex.querySelector('.ku-zone__drop[data-zone="' + chip.dataset.zone + '"]').appendChild(chip);
+        chip.classList.add("correct");
+        chip.setAttribute("draggable", "false");
+      });
+    } else if (mode === "audit") {
+      ex.querySelectorAll(".ku-audit__item").forEach(function (it) {
+        if (it.dataset.bad === "1") {
+          it.classList.add("correct");
+          it.querySelector("[data-flag]").textContent = "Нарушение";
+        }
+        it.querySelector(".ku-audit__pick").disabled = true;
+      });
+      ex.querySelector(".ku-audit").classList.add("checked");
+    }
+    reveal(ex, ok);
+  }
+
+  /* ── 7. Результат: одна компактная строка в suspend_data ─────────────── */
+  function persist() {
+    if (!window.KU) return;
+    var line = SIT.map(function (id) {
+      return id in RESULTS ? (RESULTS[id] ? "1" : "0") : "-";
+    }).join("");
+    window.KU.vars.set("otvety", line);
+    var right = SIT.filter(function (id) { return RESULTS[id] === true; }).length;
+    var bad = SIT.map(function (id, i) { return RESULTS[id] === false ? (i + 1) : 0; })
+                 .filter(Boolean);
+    window.KU.vars.set("itog", right + " из " + SIT.length + " ситуаций верно с первой попытки");
+    window.KU.vars.set("oshibki", bad.length ? bad.join(", ") : "нет");
+    paintScore(right, bad);
+  }
+
+  function paintScore(right, bad) {
+    var done = SIT.filter(function (id) { return id in RESULTS; }).length;
+    var a = document.getElementById("score-right"); if (a) a.textContent = right;
+    var b = document.getElementById("score-done");  if (b) b.textContent = done;
+    var hint = document.getElementById("score-hint");
+    if (hint) {
+      hint.hidden = bad.length === 0;
+      var c = document.getElementById("score-bad");
+      if (c) c.textContent = bad.join(", ");
+    }
+  }
+
+  function paintResume() {
+    var btn = document.getElementById("resume-btn");
+    if (!btn) return;
+    var doneCount = SIT.filter(function (id) { return id in RESULTS; }).length;
+    if (!doneCount) { btn.hidden = true; return; }
+    var i = SIT.findIndex(function (id) { return !(id in RESULTS); });
+    var target = i === -1 ? "finish" : SIT[i];
+    btn.hidden = false;
+    btn.onclick = function () { kuNavigate(target); };
+    btn.querySelector("[data-resume-label]").textContent =
+      i === -1 ? "К финалу тренажёра" : "Продолжить с ситуации " + (i + 1);
+  }
+
+  /* ── 8. Старт ────────────────────────────────────────────────────────── */
+  document.addEventListener("DOMContentLoaded", function () {
+    initGenSlots();
+    initPicks();
+  });
+
+  // ku:ready — состояние прочитано из LMS/localStorage (см. docs/SCORM.md)
+  document.addEventListener("ku:ready", function () {
+    var line = (window.KU && window.KU.vars.get("otvety")) || "";
+    SIT.forEach(function (id, i) {
+      var c = line.charAt(i);
+      if (c !== "1" && c !== "0") return;
+      RESULTS[id] = (c === "1");
+      var ex = document.querySelector('[data-ku-id="' + id + '"][data-task]');
+      if (ex && !ex.classList.contains("is-answered")) replay(ex, c === "1");
+    });
+    var right = SIT.filter(function (id) { return RESULTS[id] === true; }).length;
+    var bad = SIT.map(function (id, i) { return RESULTS[id] === false ? (i + 1) : 0; }).filter(Boolean);
+    paintScore(right, bad);
+    paintResume();
+  });
+})();
+</script>
+</body>
+</html>
