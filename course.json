@@ -3,5 +3,13 @@
   "title": "Нарушения стандартов: Борт, Фасовка, Фритюр",
   "audience": "ms",
   "direction": "stancii",
-  "_comment": "Метаданные курса. identifier и title попадают в imsmanifest.xml при упаковке (tools/scorm_pack.py). Не переименовывать файл."
+  "_comment": "Метаданные курса. identifier и title попадают в imsmanifest.xml при упаковке (tools/scorm_pack.py). Не переименовывать файл.",
+  "complete_mode": "lms",
+  "scorm_id": "ku-narusheniya-standartov-bort-fasovka-frityur",
+  "scorm_ids": {
+    "manifest": "ku-narusheniya-standartov-bort-fasovka-frityur-manifest",
+    "organization": "ku-narusheniya-standartov-bort-fasovka-frityur-org",
+    "item": "ku-narusheniya-standartov-bort-fasovka-frityur_SCO",
+    "resource": "ku-narusheniya-standartov-bort-fasovka-frityur_RES"
+  }
 }
